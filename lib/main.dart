@@ -6,6 +6,7 @@ import 'app/env.dart';
 import 'app/theme.dart';
 import 'data/auth_repository.dart';
 import 'data/catalog_repository.dart';
+import 'features/auth/account_status_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/stream/stream_banner.dart';
@@ -51,6 +52,10 @@ class _AppGate extends ConsumerWidget {
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
       if (session.value == null) return const LoginScreen();
+      final status = ref.watch(masterStatusProvider).value;
+      if (status == 'pending' || status == 'blocked') {
+        return AccountStatusScreen(status: status!);
+      }
     }
 
     return Column(

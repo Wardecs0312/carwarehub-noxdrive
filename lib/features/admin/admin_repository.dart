@@ -119,6 +119,12 @@ class AdminRepository {
     params: {'p_master': masterId, 'p_amount': amount},
   );
 
+  /// pending → active (одобрить), active ↔ blocked.
+  Future<void> setMasterStatus(String masterId, String status) => _db.rpc(
+    'admin_set_master_status',
+    params: {'p_master': masterId, 'p_status': status},
+  );
+
   Future<List<RefundRow>> pendingRefunds() async {
     final rows = await _db
         .from('refund_requests')

@@ -8,6 +8,11 @@ class _FakeRepo extends AdminRepository {
   final topUps = <(String, int)>[];
   final decisions = <(String, bool)>[];
   final streams = <(String, List<String>)>[];
+  final statuses = <(String, String)>[];
+
+  @override
+  Future<void> setMasterStatus(String masterId, String status) async =>
+      statuses.add((masterId, status));
 
   @override
   Future<List<MasterRow>> masters() async => [
@@ -17,6 +22,12 @@ class _FakeRepo extends AdminRepository {
       'phone': '+7 900 000-00-00',
       'status': 'active',
       'master_balance': {'credits': 100},
+    }),
+    MasterRow.fromJson({
+      'id': 'm2',
+      'name': 'Пётр',
+      'status': 'pending',
+      'master_balance': <Object>[],
     }),
   ];
 
@@ -73,7 +84,7 @@ void main() {
     expect(find.text('Иван'), findsOneWidget);
     expect(find.text('100 кр.'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Пополнить баланс'));
+    await tester.tap(find.byTooltip('Пополнить баланс').first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '50');
     await tester.tap(find.text('Пополнить'));
@@ -83,7 +94,7 @@ void main() {
 
   testWidgets('запрос трансляции: все источники по умолчанию', (tester) async {
     final repo = await _pump(tester);
-    await tester.tap(find.byTooltip('Запросить трансляцию'));
+    await tester.tap(find.byTooltip('Запросить трансляцию').first);
     await tester.pumpAndSettle();
     expect(find.textContaining('Мастер увидит плашку'), findsOneWidget);
     await tester.tap(find.text('Запросить'));
@@ -100,5 +111,13 @@ void main() {
     await tester.tap(find.text('Вернуть кредиты'));
     await tester.pumpAndSettle();
     expect(repo.decisions, [('r1', true)]);
+  });
+
+  testWidgets('новый мастер: одобрение', (tester) async {
+    final repo = await _pump(tester);
+    expect(find.textContaining('ожидает одобрения'), findsOneWidget);
+    await tester.tap(find.text('Одобрить'));
+    await tester.pumpAndSettle();
+    expect(repo.statuses, [('m2', 'active')]);
   });
 }

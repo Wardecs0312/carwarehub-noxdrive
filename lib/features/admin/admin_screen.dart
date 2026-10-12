@@ -96,20 +96,42 @@ class _MastersTab extends ConsumerWidget {
       child: ListTile(
         leading: Icon(
           Icons.person,
-          color: m.status == 'active' ? NoxColors.ok : NoxColors.bad,
+          color: switch (m.status) {
+            'active' => NoxColors.ok,
+            'pending' => NoxColors.warn,
+            _ => NoxColors.bad,
+          },
         ),
         title: Text(m.name),
         subtitle: Text(
           [
             if (m.phone != null) m.phone!,
-            if (m.status != 'active') 'заблокирован',
+            if (m.status == 'pending') 'ожидает одобрения',
+            if (m.status == 'blocked') 'заблокирован',
           ].join(' · '),
         ),
         trailing: Wrap(
           spacing: 4,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            if (m.status == 'pending')
+              FilledButton(
+                onPressed: () => _setStatus(context, ref, m, 'active'),
+                child: const Text('Одобрить'),
+              ),
             Text('${m.credits} кр.'),
+            IconButton(
+              tooltip: m.status == 'blocked'
+                  ? 'Разблокировать'
+                  : 'Заблокировать',
+              icon: Icon(m.status == 'blocked' ? Icons.lock_open : Icons.block),
+              onPressed: () => _setStatus(
+                context,
+                ref,
+                m,
+                m.status == 'blocked' ? 'active' : 'blocked',
+              ),
+            ),
             IconButton(
               tooltip: 'Пополнить баланс',
               icon: const Icon(Icons.add_card),
@@ -125,6 +147,28 @@ class _MastersTab extends ConsumerWidget {
       ),
     ),
   );
+
+  Future<void> _setStatus(
+    BuildContext context,
+    WidgetRef ref,
+    MasterRow m,
+    String status,
+  ) async {
+    try {
+      await ref.read(adminRepositoryProvider).setMasterStatus(m.id, status);
+      ref.invalidate(adminMastersProvider);
+      if (context.mounted) {
+        _toast(
+          context,
+          status == 'active'
+              ? '${m.name}: доступ открыт'
+              : '${m.name}: заблокирован',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) _toast(context, 'Не удалось: $e');
+    }
+  }
 
   Future<void> _topUp(BuildContext context, WidgetRef ref, MasterRow m) async {
     final ctrl = TextEditingController();
