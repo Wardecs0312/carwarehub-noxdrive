@@ -16,7 +16,7 @@ Service key в приложение не добавлять.
 
 ## Настройка Supabase
 
-1. Выполнить по порядку `supabase/migrations/0001_init.sql`, `0002_jobs.sql` и `0003_custom_apk.sql` в SQL Editor.
+1. Выполнить по порядку `supabase/migrations/0001_init.sql`, `0002_jobs.sql` и `0003_custom_apk.sql` и `0004_seed_scenarios.sql` в SQL Editor.
 2. Создать мастера: Authentication → Users → Add user, затем `insert into masters (id, name) values ('<uuid>', 'Имя');`
 3. Администратор: `insert into admins (user_id) values ('<uuid>');`
 4. Пополнение баланса: `select admin_topup('<uuid мастера>', 100);` (от имени администратора).
@@ -33,8 +33,32 @@ Service key в приложение не добавлять.
 Подготовка файла для загрузки: `dart run tool/encrypt_payload.dart app.apk app.apk.enc`.
 Утилита печатает ключ, размер и sha256, их нужно внести в таблицу `payloads`.
 
-Шаги сценария (`scenarios.steps`, jsonb): `install_apk`, `run_script`, `shell`, `uninstall`, `reboot`.
+Шаги сценария (`scenarios.steps`, jsonb): `install_apk` (флаги `grant` = `-g`, `downgrade` = `-d`), `run_script`,
+`push_file` (запись файла на ГУ по `remote_path`), `shell` (флаг `ignore_errors`), `uninstall`, `reboot`.
+Шаг с `"hidden": true` не показывается мастеру в окне настройки пакета.
 Услуга [6] (вывод на приборную панель) это обычный сценарий с шагом `install_apk`: пока файл не загружен, сервер ответит, что сценарий для прошивки не найден.
+
+## Услуги из nox.bat
+
+| Услуга | Как задаётся |
+|---|---|
+| [1] Русификация | `publish_package.dart --recipe russify`: подготовка, все .apk из `soft/` с `-r -g` |
+| [2] Голосовое управление | `--recipe voice`: push файлов в /data/local/tmp, установка SpeechHMI, перенос в /resources/appdata/tinnove, очистка |
+| [3] Удаление китайских приложений | `0004_seed_scenarios.sql`: 7 пакетов через `pm uninstall --user 0` |
+| [4] Перезагрузка | `0004_seed_scenarios.sql`: `adb reboot` |
+| [5] Системные приложения | `--recipe sysapps`: все .apk из `firmware/` с `-r -d`, затем три `cmd overlay enable` |
+| [6] Приборная панель | `--recipe cluster`: один .apk с `-r -g` (предположение: без подготовки) |
+
+Публикация (на компьютере администратора, ключ service_role только в переменных окружения):
+
+```
+export SUPABASE_URL=https://<project>.supabase.co
+export SUPABASE_SERVICE_KEY=<service_role key>
+dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip --prep tool/local/prep.sh --models all --dry-run
+```
+
+Без `--dry-run` утилита скачает архив из Storage, зашифрует каждый файл, загрузит в `payloads` и создаст сценарии.
+Файл `tool/local/prep.sh` (команда доступа ADB) лежит только у администратора, папка не попадает в git, образец в `tool/examples/`.
 
 ## Свои APK мастера
 

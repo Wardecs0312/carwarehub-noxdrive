@@ -1,4 +1,4 @@
-enum StepType { installApk, runScript, shell, uninstall, reboot }
+enum StepType { installApk, runScript, pushFile, shell, uninstall, reboot }
 
 /// Один шаг сценария, как его вернул сервер (`start_job`).
 class JobStep {
@@ -11,6 +11,9 @@ class JobStep {
     this.cmd,
     this.packages = const [],
     this.grantPermissions = false,
+    this.downgrade = false,
+    this.remotePath,
+    this.ignoreErrors = false,
   });
 
   final StepType type;
@@ -24,13 +27,25 @@ class JobStep {
   /// Для install_apk: выдать приложению все разрешения при установке (аналог `adb install -g`).
   final bool grantPermissions;
 
+  /// Для install_apk: разрешить установку более старой версии (аналог `adb install -d`).
+  final bool downgrade;
+
+  /// Для push_file: куда записать файл на головном устройстве.
+  final String? remotePath;
+
+  /// Для shell: ошибка команды не прерывает задание (очистка временных файлов и т.п.).
+  final bool ignoreErrors;
+
   bool get needsPayload =>
-      type == StepType.installApk || type == StepType.runScript;
+      type == StepType.installApk ||
+      type == StepType.runScript ||
+      type == StepType.pushFile;
 
   factory JobStep.fromJson(Map<String, dynamic> j) {
     final type = switch (j['type']) {
       'install_apk' => StepType.installApk,
       'run_script' => StepType.runScript,
+      'push_file' => StepType.pushFile,
       'shell' => StepType.shell,
       'uninstall' => StepType.uninstall,
       'reboot' => StepType.reboot,
@@ -45,6 +60,9 @@ class JobStep {
       cmd: j['cmd'] as String?,
       packages: ((j['packages'] as List?) ?? const []).cast<String>(),
       grantPermissions: (j['grant'] as bool?) ?? false,
+      downgrade: (j['downgrade'] as bool?) ?? false,
+      remotePath: j['remote_path'] as String?,
+      ignoreErrors: (j['ignore_errors'] as bool?) ?? false,
     );
   }
 }

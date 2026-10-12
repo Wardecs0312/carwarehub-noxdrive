@@ -12,6 +12,9 @@ class FakeExecutor implements AdbExecutor {
   /// Вызовы pipe с таким размером завершатся ошибкой установки.
   final failSizes = <int>{};
 
+  /// Команды shell, которые завершатся ошибкой.
+  final failShell = <String>{};
+
   @override
   Future<DeviceInfo> readDeviceInfo(String serial) async =>
       DeviceInfo(build: 'CHANGAN.Q05.1.0', model: 'Q05', serial: serial);
@@ -19,6 +22,7 @@ class FakeExecutor implements AdbExecutor {
   @override
   Future<String> shell(String serial, String command) async {
     calls.add('shell:$command');
+    if (failShell.contains(command)) throw AdbException('нет доступа');
     return 'ok';
   }
 

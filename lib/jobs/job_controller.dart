@@ -258,6 +258,7 @@ class JobController extends Notifier<JobState> {
     switch (step.type) {
       case StepType.installApk:
       case StepType.runScript:
+      case StepType.pushFile:
         final size = step.sizeBytes;
         final path = step.storagePath;
         final key = step.encKey;
@@ -272,21 +273,32 @@ class JobController extends Notifier<JobState> {
               report(size == 0 ? 1 : (done / size).clamp(0, 1).toDouble());
               return chunk;
             });
-        final args = step.type == StepType.installApk
-            ? [
-                'cmd',
-                'package',
-                'install',
-                '-r',
-                if (step.grantPermissions) '-g',
-                '-S',
-                '$size',
-              ]
-            : ['sh'];
+        final args = switch (step.type) {
+          StepType.installApk => [
+            'cmd',
+            'package',
+            'install',
+            '-r',
+            if (step.grantPermissions) '-g',
+            if (step.downgrade) '-d',
+            '-S',
+            '$size',
+          ],
+          StepType.pushFile => [_pushCommand(step)],
+          _ => ['sh'],
+        };
         await executor.pipe(serial, args, plain);
         if (done != size) throw JobException('Файл получен не полностью');
       case StepType.shell:
-        log.writeln(await executor.shell(serial, step.cmd ?? ''));
+        try {
+          final out = await executor.shell(serial, step.cmd ?? '');
+          // pm/cmd могут напечатать Failure [..] и всё равно завершиться с кодом 0
+          if (RegExp(r'Failure \[').hasMatch(out)) throw AdbException(out);
+          log.writeln(out);
+        } on AdbException catch (e) {
+          if (!step.ignoreErrors) rethrow;
+          log.writeln('Пропущено: $e');
+        }
       case StepType.uninstall:
         for (final pkg in step.packages) {
           // отсутствие пакета не ошибка: нужное состояние уже достигнуто
@@ -298,6 +310,15 @@ class JobController extends Notifier<JobState> {
         await executor.reboot(serial);
     }
     report(1);
+  }
+
+  /// Команда на ГУ, которая записывает stdin в файл: `cat > '/путь/файл'`.
+  String _pushCommand(JobStep step) {
+    final path = step.remotePath;
+    if (path == null || path.isEmpty) {
+      throw JobException('Сценарий повреждён: не указан путь на устройстве');
+    }
+    return "cat > '${path.replaceAll("'", r"'\''")}'";
   }
 
   Future<void> requestRefund() async {

@@ -227,4 +227,122 @@ void main() {
       expect(backend.refundRequested, isTrue);
     },
   );
+
+  group('шаги сценариев из nox.bat', () {
+    Future<(ProviderContainer, FakeExecutor, FakeBackend)> setupSteps(
+      List<JobStep> steps,
+    ) async {
+      final key = List<int>.generate(32, (i) => i + 7);
+      final bytes = List<int>.generate(700, (i) => i % 200);
+      final enc = await PayloadCipher(key).encrypt(bytes);
+      final fixed = [
+        for (final s in steps)
+          s.needsPayload
+              ? JobStep(
+                  type: s.type,
+                  title: s.title,
+                  storagePath: 'p',
+                  sizeBytes: bytes.length,
+                  encKey: PayloadCipher(key).keyBase64,
+                  remotePath: s.remotePath,
+                  downgrade: s.downgrade,
+                )
+              : s,
+      ];
+      final exec = FakeExecutor();
+      final backend = FakeBackend(
+        JobTicket(jobId: 'j', price: 0, repeat: false, steps: fixed),
+        enc,
+      );
+      final c = ProviderContainer(
+        overrides: [
+          adbExecutorProvider.overrideWithValue(exec),
+          jobBackendProvider.overrideWithValue(backend),
+          appVersionProvider.overrideWith((_) async => '1.0.0+1'),
+          adbStatusProvider.overrideWith(
+            (_) => Stream.value(
+              const AdbStatus(AdbConnection.connected, serial: 'A'),
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.listen(adbStatusProvider, (_, _) {});
+      await c.read(adbStatusProvider.future);
+      return (c, exec, backend);
+    }
+
+    test('push_file записывает расшифрованный файл на ГУ, install -d, ошибки очистки игнорируются', () async {
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(
+          type: StepType.pushFile,
+          title: 'Загрузка',
+          remotePath: "/data/local/tmp/it's.apk",
+        ),
+        JobStep(type: StepType.installApk, title: 'Системное', downgrade: true),
+        JobStep(
+          type: StepType.shell,
+          title: 'Очистка',
+          cmd: 'rm /data/local/tmp/*.apk',
+          ignoreErrors: true,
+        ),
+      ]);
+      exec.failShell.add('rm /data/local/tmp/*.apk');
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
+      expect(exec.calls, [
+        r"pipe:cat > '/data/local/tmp/it'\''s.apk'",
+        'pipe:cmd package install -r -d -S 700',
+        'shell:rm /data/local/tmp/*.apk',
+      ]);
+      expect(exec.received.first.length, 700);
+      expect(backend.finished, [true]);
+    });
+
+    test('shell без ignore_errors прерывает задание', () async {
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(
+          type: StepType.shell,
+          title: 'Overlay',
+          cmd: 'cmd overlay enable x',
+        ),
+      ]);
+      exec.failShell.add('cmd overlay enable x');
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(c.read(jobControllerProvider).phase, JobPhase.failed);
+      expect(backend.finished, [false]);
+    });
+
+    test(
+      'сценарий JSON из базы разбирается: push_file, downgrade, ignore_errors',
+      () {
+        final s = JobStep.fromJson({
+          'type': 'push_file',
+          'title': 't',
+          'remote_path': '/x',
+          'storage_path': 'p',
+          'size_bytes': 5,
+          'enc_key': 'k',
+        });
+        expect(s.type, StepType.pushFile);
+        expect(s.remotePath, '/x');
+        expect(
+          JobStep.fromJson({'type': 'install_apk', 'downgrade': true})
+              .downgrade,
+          isTrue,
+        );
+        expect(
+          JobStep.fromJson({'type': 'shell', 'ignore_errors': true})
+              .ignoreErrors,
+          isTrue,
+        );
+      },
+    );
+  });
 }

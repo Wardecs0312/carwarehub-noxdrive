@@ -1,6 +1,0 @@
-# Пример скрипта подготовки для услуги «Русификация» (выполняется на ГУ через sh до установки приложений).
-# Скопируйте в tool/local/russify_pre.sh (папка не попадает в git) и подставьте реальные значения.
-# Аналог первых строк ветки :apps из nox.bat.
-echo <ПАРОЛЬ_ADB> | disable-verify 1
-am start -n com.android.settings/.Settings
-setprop vecentek.model 1
