@@ -10,6 +10,7 @@ class JobStep {
     this.encKey,
     this.cmd,
     this.packages = const [],
+    this.grantPermissions = false,
   });
 
   final StepType type;
@@ -19,6 +20,9 @@ class JobStep {
   final String? encKey;
   final String? cmd;
   final List<String> packages;
+
+  /// Для install_apk: выдать приложению все разрешения при установке (аналог `adb install -g`).
+  final bool grantPermissions;
 
   bool get needsPayload =>
       type == StepType.installApk || type == StepType.runScript;
@@ -40,6 +44,7 @@ class JobStep {
       encKey: j['enc_key'] as String?,
       cmd: j['cmd'] as String?,
       packages: ((j['packages'] as List?) ?? const []).cast<String>(),
+      grantPermissions: (j['grant'] as bool?) ?? false,
     );
   }
 }

@@ -273,7 +273,15 @@ class JobController extends Notifier<JobState> {
               return chunk;
             });
         final args = step.type == StepType.installApk
-            ? ['cmd', 'package', 'install', '-r', '-S', '$size']
+            ? [
+                'cmd',
+                'package',
+                'install',
+                '-r',
+                if (step.grantPermissions) '-g',
+                '-S',
+                '$size',
+              ]
             : ['sh'];
         await executor.pipe(serial, args, plain);
         if (done != size) throw JobException('Файл получен не полностью');

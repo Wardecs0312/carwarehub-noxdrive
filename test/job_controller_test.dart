@@ -23,6 +23,7 @@ const _vin = 'LS5A3ABC1NA000123';
 
 Future<(ProviderContainer, FakeExecutor, FakeBackend, List<int>)> _setup({
   bool withReboot = true,
+  bool grant = false,
 }) async {
   final key = List<int>.generate(32, (i) => i + 1);
   final apk = List<int>.generate(150000, (i) => i % 251);
@@ -38,6 +39,7 @@ Future<(ProviderContainer, FakeExecutor, FakeBackend, List<int>)> _setup({
         storagePath: 'apk/x.enc',
         sizeBytes: apk.length,
         encKey: PayloadCipher(key).keyBase64,
+        grantPermissions: grant,
       ),
       if (withReboot)
         const JobStep(type: StepType.reboot, title: 'Перезагрузка'),
@@ -79,6 +81,21 @@ Future<CustomApk> _tempApk(
 }
 
 void main() {
+  test(
+    'install_apk с grant выдаёт разрешения (-g), как adb install -r -g',
+    () async {
+      final (c, exec, _, apk) = await _setup(withReboot: false, grant: true);
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(
+        exec.calls.single,
+        'pipe:cmd package install -r -g -S ${apk.length}',
+      );
+    },
+  );
+
   test(
     'APK расшифровывается потоком и уходит в ADB без записи на диск',
     () async {
