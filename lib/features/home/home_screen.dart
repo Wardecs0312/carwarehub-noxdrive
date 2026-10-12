@@ -78,7 +78,22 @@ class HomeScreen extends ConsumerWidget {
                             Text('Не удалось загрузить модели: $e'),
                       ),
                       const SizedBox(height: 28),
-                      const _SectionTitle('3. Услуга'),
+                      Row(
+                        children: [
+                          const Expanded(child: _SectionTitle('3. Услуга')),
+                          if (selected != null)
+                            TextButton.icon(
+                              key: const Key('back-to-models'),
+                              onPressed: () =>
+                                  ref
+                                          .read(selectedModelProvider.notifier)
+                                          .state =
+                                      null,
+                              icon: const Icon(Icons.arrow_back, size: 18),
+                              label: const Text('Назад'),
+                            ),
+                        ],
+                      ),
                       if (selected == null)
                         const Text(
                           'Выберите модель автомобиля',

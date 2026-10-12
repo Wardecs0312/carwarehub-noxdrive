@@ -146,6 +146,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (_register || waitingTg)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const Key('login-back'),
+                          onPressed: waitingTg
+                              ? _cancelTelegram
+                              : () => _setMode(false),
+                          icon: const Icon(Icons.arrow_back, size: 18),
+                          label: const Text('Назад'),
+                        ),
+                      ),
                     Image.asset('assets/brand/nox_logo.png', width: 300),
                     const SizedBox(height: 20),
                     SegmentedButton<bool>(

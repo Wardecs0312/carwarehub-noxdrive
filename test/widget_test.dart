@@ -66,6 +66,15 @@ void main() {
     expect(_cards(tester).every((w) => w.onTap == null), isTrue);
   });
 
+  testWidgets('«Назад» возвращает к выбору модели', (tester) async {
+    await _pump(tester, const AdbStatus(AdbConnection.connected, serial: 'A'));
+    expect(_cards(tester), isNotEmpty);
+    await tester.tap(find.byKey(const Key('back-to-models')));
+    await tester.pumpAndSettle();
+    expect(_cards(tester), isEmpty);
+    expect(find.text('Выберите модель автомобиля'), findsOneWidget);
+  });
+
   testWidgets('ADB и VIN готовы: услуги активны', (tester) async {
     await _pump(
       tester,

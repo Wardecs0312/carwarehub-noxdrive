@@ -57,9 +57,11 @@ class AccountStatusScreen extends ConsumerWidget {
                         onPressed: () => ref.invalidate(masterStatusProvider),
                         child: const Text('Проверить'),
                       ),
-                    OutlinedButton(
+                    // «Назад» ведёт на экран входа (выход из аккаунта).
+                    OutlinedButton.icon(
                       onPressed: signOut,
-                      child: const Text('Выйти'),
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      label: const Text('Назад ко входу'),
                     ),
                   ],
                 ),
