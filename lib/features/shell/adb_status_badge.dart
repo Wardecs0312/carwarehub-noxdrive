@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../adb/adb_status.dart';
 import '../../adb/adb_status_checker.dart';
+import '../../app/theme.dart';
 
-/// Индикатор в верхней панели: 🔴 Не подключено / 🟢 Подключено.
+/// Индикатор в шапке: 🔴 ADB: Не подключено / 🟢 ADB: Подключено (Устройство активно).
 class AdbStatusBadge extends ConsumerWidget {
   const AdbStatusBadge({super.key});
 
@@ -14,28 +15,44 @@ class AdbStatusBadge extends ConsumerWidget {
         ref.watch(adbStatusProvider).value ??
         const AdbStatus(AdbConnection.disconnected);
     final ready = status.isReady;
-    final label = ready
-        ? 'Подключено${status.model != null ? ' · ${status.model}' : ''}'
-        : (status.connection == AdbConnection.unauthorized
-              ? 'Ожидает разрешения'
-              : 'Не подключено');
+    final label = switch (status.connection) {
+      AdbConnection.connected => 'ADB: Подключено (Устройство активно)',
+      AdbConnection.unauthorized => 'ADB: Ожидает разрешения на ГУ',
+      AdbConnection.adbMissing => 'ADB: Компонент не найден',
+      AdbConnection.disconnected => 'ADB: Не подключено',
+    };
+    final color = ready ? NoxColors.ok : NoxColors.bad;
     return Tooltip(
       message: status.blockedHint ?? 'Автомобиль готов к работе',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            key: const Key('adb-dot'),
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: ready ? const Color(0xFF2EE66B) : const Color(0xFFE5484D),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: NoxColors.panelHi,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              key: const Key('adb-dot'),
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                boxShadow: [
+                  BoxShadow(color: color.withValues(alpha: 0.7), blurRadius: 8),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 13, letterSpacing: 0.3),
+            ),
+          ],
+        ),
       ),
     );
   }

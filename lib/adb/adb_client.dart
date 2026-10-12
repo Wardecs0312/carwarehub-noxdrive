@@ -38,6 +38,15 @@ AdbStatus parseAdbDevices(String output) {
   return const AdbStatus(AdbConnection.disconnected);
 }
 
+/// Путь к adb: сначала рядом с программой (папка adb), затем из PATH.
+String resolveAdbPath() {
+  final dir = File(Platform.resolvedExecutable).parent.path;
+  final bundled = File(
+    '$dir${Platform.pathSeparator}adb${Platform.pathSeparator}adb.exe',
+  );
+  return bundled.existsSync() ? bundled.path : 'adb';
+}
+
 /// Вызывает adb.exe. Сначала ищет рядом с программой (папка adb), затем в PATH.
 class ProcessAdbClient implements AdbClient {
   ProcessAdbClient({String? adbPath}) : _adbPath = adbPath ?? _defaultPath();

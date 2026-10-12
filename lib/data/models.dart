@@ -38,12 +38,14 @@ class AppRelease {
     required this.version,
     required this.buildNumber,
     required this.isMandatory,
+    required this.downloadPath,
     this.minSupportedVersion,
     this.releaseNotes,
   });
   final String version;
   final int buildNumber;
   final bool isMandatory;
+  final String downloadPath;
   final String? minSupportedVersion;
   final String? releaseNotes;
 
@@ -51,6 +53,7 @@ class AppRelease {
     version: j['version'] as String,
     buildNumber: j['build_number'] as int,
     isMandatory: (j['is_mandatory'] as bool?) ?? false,
+    downloadPath: j['download_path'] as String,
     minSupportedVersion: j['min_supported_version'] as String?,
     releaseNotes: j['release_notes'] as String?,
   );
