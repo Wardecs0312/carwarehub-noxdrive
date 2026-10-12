@@ -285,6 +285,7 @@ select m.id, s.id from car_models m cross join services s;
 -- доступ к зашифрованным файлам только на время выполнения задания.
 
 alter table payloads add column if not exists enc_key text;   -- base64, 32 байта AES-256. Клиенту недоступен напрямую.
+alter table payloads alter column enc_key_id drop not null;  -- ключ хранится в enc_key, ссылка не нужна
 
 -- Приватные хранилища
 insert into storage.buckets (id, name, public) values ('payloads', 'payloads', false) on conflict do nothing;
