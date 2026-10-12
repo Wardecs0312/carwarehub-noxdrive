@@ -23,60 +23,111 @@ class NoxHeader extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            child: Row(
-              children: [
-                Image.asset(
-                  'assets/brand/nox_mono.png',
-                  height: 44,
-                  filterQuality: FilterQuality.medium,
-                ),
-                const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const MetalText(
-                      'nox.drive',
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 2,
-                      ),
-                    ),
+          LayoutBuilder(
+            builder: (context, c) {
+              // На телефоне (PWA) статус и баланс уходят во вторую строку.
+              final narrow = c.maxWidth < kNarrowWidth;
+              final status = Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  const AdbStatusBadge(),
+                  if (balance != null)
                     Text(
-                      'AUTOMOTIVE TECHNOLOGY',
-                      style: TextStyle(
-                        fontSize: 10,
-                        letterSpacing: 5,
-                        color: NoxColors.metalMid.withValues(alpha: 0.9),
-                      ),
+                      'Баланс: $balance кр.',
+                      style: const TextStyle(color: NoxColors.metalLight),
                     ),
-                  ],
-                ),
-                const Spacer(),
-                const AdbStatusBadge(),
-                if (balance != null) ...[
-                  const SizedBox(width: 16),
-                  Text(
-                    'Баланс: $balance кр.',
-                    style: const TextStyle(color: NoxColors.metalLight),
-                  ),
                 ],
-                if (Env.hasSupabase)
-                  IconButton(
-                    tooltip: 'Выйти',
-                    icon: const Icon(Icons.logout, color: NoxColors.metalMid),
-                    onPressed: signOut,
-                  ),
-              ],
-            ),
+              );
+              final logout = Env.hasSupabase
+                  ? IconButton(
+                      tooltip: 'Выйти',
+                      icon: const Icon(Icons.logout, color: NoxColors.metalMid),
+                      onPressed: signOut,
+                    )
+                  : null;
+              return Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: narrow ? 16 : 24,
+                  vertical: 12,
+                ),
+                child: narrow
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(child: _Brand(compact: true)),
+                              ?logout,
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          status,
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          const _Brand(compact: false),
+                          const Spacer(),
+                          status,
+                          ?logout,
+                        ],
+                      ),
+              );
+            },
           ),
           const _SupportStrip(),
         ],
       ),
     );
   }
+}
+
+/// Ширина, ниже которой экран считается телефонным.
+const kNarrowWidth = 720.0;
+
+class _Brand extends StatelessWidget {
+  const _Brand({required this.compact});
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Image.asset(
+        'assets/brand/nox_mono.png',
+        height: compact ? 34 : 44,
+        filterQuality: FilterQuality.medium,
+      ),
+      SizedBox(width: compact ? 12 : 16),
+      Flexible(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            MetalText(
+              'nox.drive',
+              style: TextStyle(
+                fontSize: compact ? 22 : 26,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 2,
+              ),
+            ),
+            Text(
+              'AUTOMOTIVE TECHNOLOGY',
+              overflow: TextOverflow.fade,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: compact ? 9 : 10,
+                letterSpacing: compact ? 3 : 5,
+                color: NoxColors.metalMid.withValues(alpha: 0.9),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 class _SupportStrip extends StatelessWidget {

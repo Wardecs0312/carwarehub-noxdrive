@@ -14,6 +14,18 @@ flutter run -d windows \
 Без этих параметров приложение работает в демо-режиме (без входа, демо-каталог, безопасный тестовый шаг).
 Service key в приложение не добавлять.
 
+### Кабинет мастера в браузере (PWA)
+
+```
+flutter build web --release --no-web-resources-cdn \
+  --dart-define=SUPABASE_URL=https://<project>.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=<anon/publishable key>
+```
+
+Папка `build/web` выкладывается на любой статический хостинг (например, Cloudflare Pages).
+`--no-web-resources-cdn` кладёт движок отрисовки рядом с сайтом, без загрузки с серверов Google.
+В браузере USB недоступен: вместо индикатора ADB показывается «Кабинет мастера», кнопки услуг заблокированы.
+
 ## Настройка Supabase
 
 1. Выполнить по порядку `supabase/migrations/0001_init.sql`, `0002_jobs.sql` и `0003_custom_apk.sql` и `0004_seed_scenarios.sql` в SQL Editor.

@@ -20,8 +20,13 @@ class AdbStatusBadge extends ConsumerWidget {
       AdbConnection.unauthorized => 'ADB: Ожидает разрешения на ГУ',
       AdbConnection.adbMissing => 'ADB: Компонент не найден',
       AdbConnection.disconnected => 'ADB: Не подключено',
+      AdbConnection.unsupported => 'Кабинет мастера',
     };
-    final color = ready ? NoxColors.ok : NoxColors.bad;
+    final color = ready
+        ? NoxColors.ok
+        : status.connection == AdbConnection.unsupported
+        ? NoxColors.metalMid
+        : NoxColors.bad;
     return Tooltip(
       message: status.blockedHint ?? 'Автомобиль готов к работе',
       child: Container(

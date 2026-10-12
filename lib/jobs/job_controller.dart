@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../adb/adb_executor.dart';
 import '../adb/adb_status_checker.dart';
 import '../app/env.dart';
+import '../app/platform.dart';
 import '../data/auth_repository.dart';
 import '../data/models.dart';
 import '../security/payload_cipher.dart';
@@ -53,7 +54,9 @@ class JobState {
   );
 }
 
-final adbExecutorProvider = Provider<AdbExecutor>((_) => ProcessAdbExecutor());
+final adbExecutorProvider = Provider<AdbExecutor>(
+  (_) => canUseAdb ? ProcessAdbExecutor() : const UnsupportedAdbExecutor(),
+);
 
 final jobBackendProvider = Provider<JobBackend>(
   (_) => Env.hasSupabase ? SupabaseJobBackend() : DemoJobBackend(),

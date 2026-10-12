@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/platform.dart';
 import 'adb_client.dart';
 import 'adb_status.dart';
 
@@ -27,6 +28,9 @@ class AdbStatusChecker {
 final adbClientProvider = Provider<AdbClient>((_) => ProcessAdbClient());
 
 /// Статус ADB в реальном времени. Опрос идёт, пока на провайдер кто-то подписан.
+/// Где USB недоступен (браузер), опроса нет: сразу статус «не поддерживается».
 final adbStatusProvider = StreamProvider<AdbStatus>(
-  (ref) => AdbStatusChecker(ref.watch(adbClientProvider)).watch(),
+  (ref) => canUseAdb
+      ? AdbStatusChecker(ref.watch(adbClientProvider)).watch()
+      : Stream.value(const AdbStatus(AdbConnection.unsupported)),
 );

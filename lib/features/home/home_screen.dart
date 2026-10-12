@@ -44,7 +44,9 @@ class HomeScreen extends ConsumerWidget {
               const NoxHeader(),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(28),
+                  padding: EdgeInsets.all(
+                    MediaQuery.sizeOf(context).width < kNarrowWidth ? 16 : 28,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

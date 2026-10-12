@@ -51,43 +51,47 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         Container(color: Colors.black.withValues(alpha: 0.55)),
         Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset('assets/brand/nox_logo.png', width: 340),
-                const SizedBox(height: 28),
-                TextField(
-                  key: const Key('login-email'),
-                  controller: _email,
-                  decoration: const InputDecoration(labelText: 'Почта'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('login-password'),
-                  controller: _password,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Пароль'),
-                  onSubmitted: (_) => _submit(),
-                ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: NoxColors.bad),
+          // На телефоне клавиатура съедает полэкрана, поэтому форма прокручивается.
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset('assets/brand/nox_logo.png', width: 300),
+                  const SizedBox(height: 28),
+                  TextField(
+                    key: const Key('login-email'),
+                    controller: _email,
+                    decoration: const InputDecoration(labelText: 'Почта'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const Key('login-password'),
+                    controller: _password,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Пароль'),
+                    onSubmitted: (_) => _submit(),
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: NoxColors.bad),
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      child: const Text('Войти'),
                     ),
                   ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: const Text('Войти'),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

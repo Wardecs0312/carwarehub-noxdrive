@@ -30,6 +30,32 @@ class AdbException implements Exception {
   String toString() => message;
 }
 
+/// Заглушка для платформ без USB (браузер). Кнопки услуг там заблокированы,
+/// но если вызов всё же случится, мастер увидит понятную причину.
+class UnsupportedAdbExecutor implements AdbExecutor {
+  const UnsupportedAdbExecutor();
+
+  static Never _fail() => throw AdbException(
+    'Услуги запускаются в программе для Windows или Android',
+  );
+
+  @override
+  Future<DeviceInfo> readDeviceInfo(String serial) async => _fail();
+
+  @override
+  Future<String> shell(String serial, String command) async => _fail();
+
+  @override
+  Future<void> pipe(
+    String serial,
+    List<String> remoteArgs,
+    Stream<List<int>> data,
+  ) async => _fail();
+
+  @override
+  Future<void> reboot(String serial) async => _fail();
+}
+
 /// Реализация через adb.exe. Процессы запускаются без окна консоли:
 /// приложение GUI-типа, `Process.start` не создаёт видимой консоли для дочернего процесса.
 /// (Нужно проверить на целевом ПК с Windows.)

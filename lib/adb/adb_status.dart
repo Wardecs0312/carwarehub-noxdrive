@@ -10,6 +10,9 @@ enum AdbConnection {
 
   /// ГУ готово к работе
   connected,
+
+  /// Платформа без доступа к USB (PWA в браузере): доступен только кабинет
+  unsupported,
 }
 
 class AdbStatus {
@@ -29,6 +32,8 @@ class AdbStatus {
     AdbConnection.adbMissing =>
       'Не найден компонент ADB. Переустановите программу',
     AdbConnection.disconnected => 'Подключите автомобиль по USB/ADB',
+    AdbConnection.unsupported =>
+      'Услуги запускаются в программе для Windows или Android',
   };
 
   @override
