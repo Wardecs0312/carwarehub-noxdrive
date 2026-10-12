@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../stream/stream_viewer_screen.dart';
 import 'admin_repository.dart';
 
 /// Админ-панель: мастера и баланс, заявки на возврат, трансляции.
@@ -313,10 +314,13 @@ class _StreamsTab extends ConsumerWidget {
                 IconButton(
                   tooltip: 'Смотреть',
                   icon: const Icon(Icons.play_circle_outline),
-                  // Просмотр подключается на этапе 2 (LiveKit).
-                  onPressed: () => _toast(
-                    context,
-                    'Просмотр появится после подключения сервера трансляций (этап 2)',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => StreamViewerScreen(
+                        masterId: s.masterId,
+                        masterName: s.masterName,
+                      ),
+                    ),
                   ),
                 ),
                 IconButton(

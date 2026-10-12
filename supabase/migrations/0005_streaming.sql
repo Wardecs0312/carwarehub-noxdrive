@@ -37,5 +37,11 @@ begin
   if not found then raise exception 'NOT_FOUND'; end if;
 end $$;
 
+-- Согласие мастера (один раз; дальше трансляции идут с плашкой без повторного вопроса).
+create or replace function master_stream_consent() returns void
+language sql security definer set search_path = public as $$
+  update masters set stream_consent_at = coalesce(stream_consent_at, now()) where id = auth.uid();
+$$;
+
 -- Запросы приходят в приложение мастера мгновенно (Supabase Realtime).
 alter publication supabase_realtime add table stream_sessions;

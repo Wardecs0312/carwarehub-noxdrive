@@ -89,5 +89,19 @@ WebSockets отдельно не нужны: сигналинг LiveKit идёт
 3. **Экран ГУ**: scrcpy-server + ffmpeg → LiveKit Ingress, проверка на реальном ГУ Changan.
 4. Хостинг PWA, раздача APK по ссылке, автообновление APK.
 
+## Подключение (один раз, делает владелец)
+
+1. SQL Editor: выполнить `supabase/migrations/0005_streaming.sql`.
+2. Зарегистрироваться на https://cloud.livekit.io (бесплатно), создать проект.
+   В Settings → Keys взять: адрес `wss://...livekit.cloud`, API Key, API Secret.
+3. Supabase → Edge Functions → Secrets: добавить `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`.
+   Ключи вводятся только там, не в приложение и не в git.
+4. Supabase → Edge Functions → Deploy a new function → Via Editor: имя `stream-token`,
+   вставить код из `supabase/functions/stream-token/index.ts`, Deploy.
+   (Или через CLI: `supabase functions deploy stream-token`.)
+
+Проверка: админ → Админ-панель → Мастера → значок камеры у мастера → Запросить.
+У мастера появляется вопрос о согласии (один раз) и красная плашка, у админа во вкладке «Трансляции» → «Смотреть».
+
 Что нужно от владельца: аккаунт LiveKit Cloud (бесплатный) — ключи вносятся им самим в секреты Supabase;
 HTTPS-хостинг для PWA (Cloudflare Pages бесплатно или свой домен).
