@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -41,13 +42,15 @@ class CatalogRepository {
 
   /// Возвращает релиз новее текущей версии приложения или null.
   Future<AppRelease?> availableUpdate() async {
-    if (!Env.hasSupabase) return null;
+    // PWA обновляется сама (service worker), проверка нужна только установленным сборкам.
+    final platform = releasePlatform;
+    if (!Env.hasSupabase || platform == null) return null;
     final info = await PackageInfo.fromPlatform();
     final current = int.tryParse(info.buildNumber) ?? 0;
     final rows = await _db
         .from('app_releases')
         .select()
-        .eq('platform', 'windows')
+        .eq('platform', platform)
         .eq('channel', 'stable')
         .eq('is_active', true)
         .order('build_number', ascending: false)
@@ -56,6 +59,16 @@ class CatalogRepository {
     final r = AppRelease.fromJson(rows.first);
     return r.buildNumber > current ? r : null;
   }
+}
+
+/// Значение `app_releases.platform` для текущей сборки; null для PWA.
+String? get releasePlatform {
+  if (kIsWeb) return null;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows => 'windows',
+    TargetPlatform.android => 'android',
+    _ => null,
+  };
 }
 
 const _demoModels = [

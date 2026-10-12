@@ -8,6 +8,7 @@ import 'data/auth_repository.dart';
 import 'data/catalog_repository.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
+import 'features/stream/stream_banner.dart';
 import 'features/update/update_ui.dart';
 
 Future<void> main() async {
@@ -55,6 +56,7 @@ class _AppGate extends ConsumerWidget {
     return Column(
       children: [
         if (update != null) UpdateBanner(update),
+        const StreamBanner(),
         const Expanded(child: HomeScreen()),
       ],
     );

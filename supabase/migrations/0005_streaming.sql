@@ -1,0 +1,41 @@
+-- Трансляции для администратора (docs/STREAMING.md): экран ноутбука мастера, экран ГУ, камера.
+-- Видео идёт через LiveKit; здесь только запросы, статусы и журнал.
+
+-- Согласие мастера на трансляции (галочка при первом входе).
+alter table masters add column if not exists stream_consent_at timestamptz;
+
+create table if not exists stream_sessions (
+  id uuid primary key default gen_random_uuid(),
+  master_id uuid not null references masters on delete cascade,
+  requested_by uuid not null references auth.users,
+  sources text[] not null check (sources <@ array['screen-laptop','screen-hu','camera']::text[] and cardinality(sources) > 0),
+  status text not null default 'requested' check (status in ('requested','live','ended')),
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  ended_at timestamptz
+);
+create index if not exists stream_sessions_open on stream_sessions (master_id) where status <> 'ended';
+
+alter table stream_sessions enable row level security;
+
+-- Админ: всё. Мастер: видит свои запросы (чтобы показать плашку), статус меняет только через функцию ниже.
+create policy stream_admin on stream_sessions for all to authenticated
+  using (nox_is_admin()) with check (nox_is_admin());
+create policy stream_master_read on stream_sessions for select to authenticated
+  using (master_id = auth.uid());
+
+-- Мастер меняет статус только через эту функцию: live (начал) или ended (остановил сам).
+create or replace function master_stream_status(p_id uuid, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_status not in ('live','ended') then raise exception 'BAD_STATUS'; end if;
+  update stream_sessions
+     set status = p_status,
+         started_at = case when p_status = 'live' then coalesce(started_at, now()) else started_at end,
+         ended_at = case when p_status = 'ended' then now() else ended_at end
+   where id = p_id and master_id = auth.uid() and status <> 'ended';
+  if not found then raise exception 'NOT_FOUND'; end if;
+end $$;
+
+-- Запросы приходят в приложение мастера мгновенно (Supabase Realtime).
+alter publication supabase_realtime add table stream_sessions;
