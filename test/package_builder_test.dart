@@ -74,16 +74,19 @@ void main() {
       expect(plan.files.map((f) => f.key), ['pre.sh', 'soft/app.apk']);
     });
 
-    test('нет apk: пакет только из подготовки, приложения добавляет мастер', () {
-      final plan = planRussify(
-        _zip({
-          'x.txt': [1],
-        }),
-        prep: _prep,
-      );
-      expect(plan.files.map((f) => f.key), ['pre.sh']);
-      expect(plan.steps(_ids(plan)).map((s) => s['type']), ['run_script']);
-    });
+    test(
+      'нет apk: пакет только из подготовки, приложения добавляет мастер',
+      () {
+        final plan = planRussify(
+          _zip({
+            'x.txt': [1],
+          }),
+          prep: _prep,
+        );
+        expect(plan.files.map((f) => f.key), ['pre.sh']);
+        expect(plan.steps(_ids(plan)).map((s) => s['type']), ['run_script']);
+      },
+    );
   });
 
   group('системные приложения [5]', () {

@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/env.dart';
 import '../../app/theme.dart';
 import '../../data/auth_repository.dart';
+import '../admin/admin_repository.dart';
+import '../admin/admin_screen.dart';
 import 'adb_status_badge.dart';
 import 'metal_text.dart';
 
@@ -16,6 +18,7 @@ class NoxHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final balance = ref.watch(balanceProvider).value;
+    final isAdmin = ref.watch(isAdminProvider).value ?? false;
     return Container(
       decoration: const BoxDecoration(
         color: NoxColors.panel,
@@ -47,6 +50,20 @@ class NoxHeader extends ConsumerWidget {
                       onPressed: signOut,
                     )
                   : null;
+              final admin = isAdmin
+                  ? IconButton(
+                      tooltip: 'Админ-панель',
+                      icon: const Icon(
+                        Icons.admin_panel_settings_outlined,
+                        color: NoxColors.metalMid,
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AdminScreen(),
+                        ),
+                      ),
+                    )
+                  : null;
               return Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: narrow ? 16 : 24,
@@ -59,6 +76,7 @@ class NoxHeader extends ConsumerWidget {
                           Row(
                             children: [
                               const Expanded(child: _Brand(compact: true)),
+                              ?admin,
                               ?logout,
                             ],
                           ),
@@ -71,6 +89,7 @@ class NoxHeader extends ConsumerWidget {
                           const _Brand(compact: false),
                           const Spacer(),
                           status,
+                          ?admin,
                           ?logout,
                         ],
                       ),
