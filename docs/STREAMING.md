@@ -89,6 +89,13 @@ WebSockets отдельно не нужны: сигналинг LiveKit идёт
 3. **Экран ГУ**: scrcpy-server + ffmpeg → LiveKit Ingress, проверка на реальном ГУ Changan.
 4. Хостинг PWA, раздача APK по ссылке, автообновление APK.
 
+## Сборка Windows: папка scrcpy
+
+Рядом с `carwarehub_noxdrive.exe` (как и `adb\`) кладётся папка `scrcpy\` из официального релиза
+https://github.com/Genymobile/scrcpy/releases (`scrcpy-win64-vX.Y.Z.zip`, проверять SHA256 из релиза),
+без её собственных `adb.exe`/`AdbWin*.dll`: scrcpy получает путь к нашему adb через переменную `ADB`.
+Без папки источник «Экран ГУ» просто не публикуется, остальное работает.
+
 ## Подключение (один раз, делает владелец)
 
 1. SQL Editor: выполнить `supabase/migrations/0005_streaming.sql`.
