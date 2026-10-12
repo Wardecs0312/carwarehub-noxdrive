@@ -1,5 +1,36 @@
+
 -- Все миграции одним файлом для вставки в SQL Editor Supabase (собрано из supabase/migrations/0001-0004).
--- Выполнять один раз на пустой базе.
+-- Выполнять один раз. Если в проекте уже есть объекты с такими же именами,
+-- скрипт сразу остановится со списком совпадений и ничего не создаст.
+
+-- Проверка перед установкой: ищем в проекте объекты с теми же именами, что создают миграции.
+do $$
+declare
+  conflicts text;
+begin
+  select string_agg(kind || ' ' || name, ', ') into conflicts from (
+    select 'таблица' as kind, c.relname::text as name
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = any (array[
+        'admins','masters','balance_ledger','master_balance','brands','car_models','firmwares',
+        'services','model_services','payloads','scenarios','app_releases','vehicles',
+        'activation_requests','activation_codes','activations','refund_requests'])
+    union all
+    select 'функция', p.proname::text
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = any (array[
+        'nox_is_admin','normalize_vin','start_job','finish_job','request_refund',
+        'expire_stale_jobs','admin_topup','admin_decide_refund','scenario_preview'])
+    union all
+    select 'правило хранилища', policyname::text
+      from pg_policies
+      where schemaname = 'storage' and tablename = 'objects'
+        and policyname in ('payloads_read_running_job','releases_read')
+  ) x;
+  if conflicts is not null then
+    raise exception 'В проекте уже есть объекты с такими именами: %. Ничего не создано.', conflicts;
+  end if;
+end $$;
 
 -- ===== supabase/migrations/0001_init.sql =====
 -- CarWareHubNoxDrive: начальная схема.
@@ -11,7 +42,7 @@ create extension if not exists pgcrypto;
 -- ---------- Администраторы и мастера ----------
 create table admins (user_id uuid primary key references auth.users on delete cascade);
 
-create function is_admin() returns boolean language sql stable security definer as
+create function nox_is_admin() returns boolean language sql stable security definer as
 $$ select exists (select 1 from admins where user_id = auth.uid()) $$;
 
 create table masters (
@@ -209,22 +240,22 @@ alter table refund_requests enable row level security;
 do $$ declare t text; begin
   foreach t in array array['brands','car_models','firmwares','services','model_services','app_releases'] loop
     execute format('create policy %I_read on %I for select to authenticated using (is_active)', t, t);
-    execute format('create policy %I_admin on %I for all to authenticated using (is_admin()) with check (is_admin())', t, t);
+    execute format('create policy %I_admin on %I for all to authenticated using (nox_is_admin()) with check (nox_is_admin())', t, t);
   end loop;
 end $$;
 
 -- Свои данные
-create policy masters_self on masters for select to authenticated using (id = auth.uid() or is_admin());
-create policy balance_self on master_balance for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy ledger_self on balance_ledger for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy req_self on activation_requests for select to authenticated using (master_id = auth.uid() or is_admin());
+create policy masters_self on masters for select to authenticated using (id = auth.uid() or nox_is_admin());
+create policy balance_self on master_balance for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy ledger_self on balance_ledger for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy req_self on activation_requests for select to authenticated using (master_id = auth.uid() or nox_is_admin());
 create policy req_insert on activation_requests for insert to authenticated with check (master_id = auth.uid());
-create policy code_self on activation_codes for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy act_self on activations for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy refund_self on refund_requests for select to authenticated using (master_id = auth.uid() or is_admin());
+create policy code_self on activation_codes for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy act_self on activations for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy refund_self on refund_requests for select to authenticated using (master_id = auth.uid() or nox_is_admin());
 create policy refund_insert on refund_requests for insert to authenticated with check (master_id = auth.uid());
-create policy refund_admin on refund_requests for update to authenticated using (is_admin());
-create policy admins_admin on admins for select to authenticated using (is_admin());
+create policy refund_admin on refund_requests for update to authenticated using (nox_is_admin());
+create policy admins_admin on admins for select to authenticated using (nox_is_admin());
 -- payloads, scenarios, vehicles: политик нет, значит клиенту недоступны напрямую.
 -- Доступ только через Edge Functions (service role).
 
@@ -385,7 +416,7 @@ $$;
 create function admin_topup(p_master uuid, p_amount int, p_note text default 'topup') returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not is_admin() then raise exception 'FORBIDDEN'; end if;
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
   insert into master_balance (master_id, credits) values (p_master, 0) on conflict do nothing;
   update master_balance set credits = credits + p_amount, updated_at = now() where master_id = p_master;
   insert into balance_ledger (master_id, amount, reason, created_by) values (p_master, p_amount, p_note, auth.uid());
@@ -395,7 +426,7 @@ create function admin_decide_refund(p_refund_id uuid, p_approve boolean) returns
 language plpgsql security definer set search_path = public as $$
 declare r refund_requests; a activations;
 begin
-  if not is_admin() then raise exception 'FORBIDDEN'; end if;
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
   select * into r from refund_requests where id = p_refund_id and status = 'pending' for update;
   if r.id is null then raise exception 'REFUND_NOT_FOUND'; end if;
   update refund_requests set status = case when p_approve then 'approved' else 'rejected' end,

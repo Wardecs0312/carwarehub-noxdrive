@@ -7,7 +7,7 @@ create extension if not exists pgcrypto;
 -- ---------- Администраторы и мастера ----------
 create table admins (user_id uuid primary key references auth.users on delete cascade);
 
-create function is_admin() returns boolean language sql stable security definer as
+create function nox_is_admin() returns boolean language sql stable security definer as
 $$ select exists (select 1 from admins where user_id = auth.uid()) $$;
 
 create table masters (
@@ -205,22 +205,22 @@ alter table refund_requests enable row level security;
 do $$ declare t text; begin
   foreach t in array array['brands','car_models','firmwares','services','model_services','app_releases'] loop
     execute format('create policy %I_read on %I for select to authenticated using (is_active)', t, t);
-    execute format('create policy %I_admin on %I for all to authenticated using (is_admin()) with check (is_admin())', t, t);
+    execute format('create policy %I_admin on %I for all to authenticated using (nox_is_admin()) with check (nox_is_admin())', t, t);
   end loop;
 end $$;
 
 -- Свои данные
-create policy masters_self on masters for select to authenticated using (id = auth.uid() or is_admin());
-create policy balance_self on master_balance for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy ledger_self on balance_ledger for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy req_self on activation_requests for select to authenticated using (master_id = auth.uid() or is_admin());
+create policy masters_self on masters for select to authenticated using (id = auth.uid() or nox_is_admin());
+create policy balance_self on master_balance for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy ledger_self on balance_ledger for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy req_self on activation_requests for select to authenticated using (master_id = auth.uid() or nox_is_admin());
 create policy req_insert on activation_requests for insert to authenticated with check (master_id = auth.uid());
-create policy code_self on activation_codes for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy act_self on activations for select to authenticated using (master_id = auth.uid() or is_admin());
-create policy refund_self on refund_requests for select to authenticated using (master_id = auth.uid() or is_admin());
+create policy code_self on activation_codes for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy act_self on activations for select to authenticated using (master_id = auth.uid() or nox_is_admin());
+create policy refund_self on refund_requests for select to authenticated using (master_id = auth.uid() or nox_is_admin());
 create policy refund_insert on refund_requests for insert to authenticated with check (master_id = auth.uid());
-create policy refund_admin on refund_requests for update to authenticated using (is_admin());
-create policy admins_admin on admins for select to authenticated using (is_admin());
+create policy refund_admin on refund_requests for update to authenticated using (nox_is_admin());
+create policy admins_admin on admins for select to authenticated using (nox_is_admin());
 -- payloads, scenarios, vehicles: политик нет, значит клиенту недоступны напрямую.
 -- Доступ только через Edge Functions (service role).
 

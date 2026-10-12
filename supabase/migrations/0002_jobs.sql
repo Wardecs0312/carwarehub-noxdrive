@@ -133,7 +133,7 @@ $$;
 create function admin_topup(p_master uuid, p_amount int, p_note text default 'topup') returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not is_admin() then raise exception 'FORBIDDEN'; end if;
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
   insert into master_balance (master_id, credits) values (p_master, 0) on conflict do nothing;
   update master_balance set credits = credits + p_amount, updated_at = now() where master_id = p_master;
   insert into balance_ledger (master_id, amount, reason, created_by) values (p_master, p_amount, p_note, auth.uid());
@@ -143,7 +143,7 @@ create function admin_decide_refund(p_refund_id uuid, p_approve boolean) returns
 language plpgsql security definer set search_path = public as $$
 declare r refund_requests; a activations;
 begin
-  if not is_admin() then raise exception 'FORBIDDEN'; end if;
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
   select * into r from refund_requests where id = p_refund_id and status = 'pending' for update;
   if r.id is null then raise exception 'REFUND_NOT_FOUND'; end if;
   update refund_requests set status = case when p_approve then 'approved' else 'rejected' end,
