@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../adb/adb_status.dart';
+import '../../adb/adb_status_checker.dart';
 import '../../data/catalog_repository.dart';
+import '../shell/adb_status_badge.dart';
 import '../../data/models.dart';
 
 class ServicesScreen extends ConsumerWidget {
@@ -24,9 +27,16 @@ class ServicesScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'CarWareHub NoxDrive',
-                    style: Theme.of(context).textTheme.headlineMedium,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'CarWareHub NoxDrive',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                      ),
+                      const AdbStatusBadge(),
+                    ],
                   ),
                   const SizedBox(height: 20),
                   models.when(
@@ -82,37 +92,49 @@ class ServicesScreen extends ConsumerWidget {
   }
 }
 
-class _ServiceCard extends StatelessWidget {
+class _ServiceCard extends ConsumerWidget {
   const _ServiceCard(this.service);
   final ServiceItem service;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () {}, // запуск ADB-сценария будет на следующем этапе
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              service.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status =
+        ref.watch(adbStatusProvider).value ??
+        const AdbStatus(AdbConnection.disconnected);
+    final enabled = status.isReady;
+    final card = Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          // запуск ADB-сценария будет на следующем этапе
+          onTap: enabled ? () {} : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  service.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (service.priceCredits > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('${service.priceCredits} кр.'),
+                  ),
+              ],
             ),
-            if (service.priceCredits > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text('${service.priceCredits} кр.'),
-              ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+    final hint = status.blockedHint;
+    return hint == null ? card : Tooltip(message: hint, child: card);
+  }
 }
 
 class _UpdateBanner extends StatelessWidget {
