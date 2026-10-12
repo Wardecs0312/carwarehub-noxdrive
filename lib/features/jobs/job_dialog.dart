@@ -67,6 +67,14 @@ class _JobDialog extends ConsumerWidget {
                       color: ok ? NoxColors.ok : NoxColors.metalMid,
                     ),
                   ),
+                  if (ok && job.message != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        job.message!,
+                        style: const TextStyle(color: NoxColors.warn),
+                      ),
+                    ),
                 ] else ...[
                   Row(
                     children: [

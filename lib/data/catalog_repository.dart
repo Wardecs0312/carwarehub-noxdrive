@@ -27,7 +27,7 @@ class CatalogRepository {
     final rows = await _db
         .from('model_services')
         .select(
-          'price_override, services(id, code, title, price_credits, sort_order)',
+          'price_override, services(id, code, title, price_credits, allow_custom_apks, sort_order)',
         )
         .eq('model_id', modelId)
         .eq('is_active', true);
@@ -72,12 +72,14 @@ const _demoServices = [
     code: 'russify',
     title: 'Русификация и установка приложений',
     priceCredits: 0,
+    allowCustomApks: true,
   ),
   ServiceItem(
     id: 2,
     code: 'voice',
     title: 'Установка голосового управления',
     priceCredits: 0,
+    allowCustomApks: true,
   ),
   ServiceItem(
     id: 3,
@@ -96,6 +98,7 @@ const _demoServices = [
     code: 'sysapps',
     title: 'Установка системных приложений',
     priceCredits: 0,
+    allowCustomApks: true,
   ),
   ServiceItem(
     id: 6,

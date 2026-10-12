@@ -14,6 +14,14 @@ abstract class JobBackend {
     required DeviceInfo device,
   });
 
+  /// Что входит в основной пакет и сколько стоит. Ничего не списывает.
+  Future<PackagePreview> preview({
+    required String vin,
+    required int serviceId,
+    required int modelId,
+    required DeviceInfo device,
+  });
+
   Future<void> finishJob(
     String jobId, {
     required bool success,
@@ -66,6 +74,29 @@ class SupabaseJobBackend implements JobBackend {
         },
       );
       return JobTicket.fromJson(Map<String, dynamic>.from(res as Map));
+    } on PostgrestException catch (e) {
+      throw JobException(_humanize(e));
+    }
+  }
+
+  @override
+  Future<PackagePreview> preview({
+    required String vin,
+    required int serviceId,
+    required int modelId,
+    required DeviceInfo device,
+  }) async {
+    try {
+      final res = await _db.rpc(
+        'scenario_preview',
+        params: {
+          'p_vin': vin,
+          'p_service_id': serviceId,
+          'p_model_id': modelId,
+          'p_device': device.toJson(),
+        },
+      );
+      return PackagePreview.fromJson(Map<String, dynamic>.from(res as Map));
     } on PostgrestException catch (e) {
       throw JobException(_humanize(e));
     }
@@ -136,6 +167,18 @@ class DemoJobBackend implements JobBackend {
         cmd: 'getprop ro.product.model',
       ),
     ],
+  );
+
+  @override
+  Future<PackagePreview> preview({
+    required String vin,
+    required int serviceId,
+    required int modelId,
+    required DeviceInfo device,
+  }) async => const PackagePreview(
+    items: ['Яндекс Навигатор', 'Русская клавиатура', 'Языковой пакет'],
+    price: 0,
+    repeat: false,
   );
 
   @override

@@ -12,6 +12,7 @@ class NoxColors {
   static const metalDark = Color(0xFF55595F);
   static const ok = Color(0xFF2EE66B);
   static const bad = Color(0xFFFF4D5A);
+  static const warn = Color(0xFFFFB74D);
 
   /// Металлический градиент для заголовков и акцентных линий.
   static const metal = LinearGradient(

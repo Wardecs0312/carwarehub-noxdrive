@@ -10,7 +10,9 @@ import '../../core/vin.dart';
 import '../../data/catalog_repository.dart';
 import '../../data/models.dart';
 import '../../jobs/job_controller.dart';
+import '../../jobs/job_models.dart';
 import '../jobs/job_dialog.dart';
+import '../jobs/package_setup_dialog.dart';
 import '../shell/nox_header.dart';
 
 final vinProvider = StateProvider<String>((_) => '');
@@ -202,15 +204,28 @@ class _ServiceCard extends ConsumerWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: enabled
-              ? () {
+              ? () async {
+                  final v = normalizeVin(vin);
+                  var apks = const <CustomApk>[];
+                  if (service.allowCustomApks) {
+                    final chosen = await showPackageSetupDialog(
+                      context,
+                      service: service,
+                      model: model,
+                      vin: v,
+                    );
+                    if (chosen == null || !context.mounted) return;
+                    apks = chosen;
+                  }
                   ref
                       .read(jobControllerProvider.notifier)
                       .run(
                         service: service,
-                        vin: normalizeVin(vin),
+                        vin: v,
                         model: model,
+                        customApks: apks,
                       );
-                  showJobDialog(context);
+                  if (context.mounted) showJobDialog(context);
                 }
               : null,
           child: Padding(

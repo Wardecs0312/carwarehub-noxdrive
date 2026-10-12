@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -27,6 +29,8 @@ class JobState {
   final double progress;
   final String stepTitle;
   final String serviceTitle;
+
+  /// При ошибке: причина. При успехе: примечание (например, какие свои APK не установились).
   final String? message;
   final String? jobId;
   final bool refundable;
@@ -60,8 +64,33 @@ final appVersionProvider = FutureProvider<String>((_) async {
   return '${info.version}+${info.buildNumber}';
 });
 
+typedef PreviewKey = ({int serviceId, int modelId, String vin});
+
+/// Состав основного пакета для окна настройки. Читает модель/прошивку ГУ и спрашивает сервер.
+final packagePreviewProvider = FutureProvider.autoDispose
+    .family<PackagePreview, PreviewKey>((ref, key) async {
+      final adb = ref.read(adbStatusProvider).value;
+      if (adb == null || !adb.isReady || adb.serial == null) {
+        throw JobException(
+          adb?.blockedHint ?? 'Подключите автомобиль по USB/ADB',
+        );
+      }
+      final device = await ref
+          .read(adbExecutorProvider)
+          .readDeviceInfo(adb.serial!);
+      return ref
+          .read(jobBackendProvider)
+          .preview(
+            vin: key.vin,
+            serviceId: key.serviceId,
+            modelId: key.modelId,
+            device: device,
+          );
+    });
+
 /// Менеджер фонового выполнения услуги.
-/// Файлы идут из облака в расшифровку и сразу в stdin ADB: на диск ничего не попадает.
+/// Основной пакет идёт из облака через расшифровку сразу в stdin ADB: на диск ничего не попадает.
+/// Затем по очереди ставятся собственные APK мастера (читаются с его диска потоком, копий не создаётся).
 class JobController extends Notifier<JobState> {
   @override
   JobState build() => const JobState();
@@ -72,11 +101,15 @@ class JobController extends Notifier<JobState> {
     required ServiceItem service,
     required String vin,
     required CarModel model,
+    List<CustomApk> customApks = const [],
   }) async {
     if (state.phase == JobPhase.running) return;
     final executor = ref.read(adbExecutorProvider);
     final backend = ref.read(jobBackendProvider);
     final adb = ref.read(adbStatusProvider).value;
+    final customs = service.allowCustomApks
+        ? customApks.where((a) => a.selected).toList()
+        : <CustomApk>[];
 
     state = JobState(
       phase: JobPhase.running,
@@ -109,18 +142,52 @@ class JobController extends Notifier<JobState> {
       state = state.copyWith(jobId: jobId);
 
       final steps = ticket.steps;
-      for (var i = 0; i < steps.length; i++) {
-        final step = steps[i];
+      final total = steps.length + customs.length;
+
+      // Перезагрузка (если она есть в сценарии) выполняется в самом конце, после своих APK мастера.
+      final main = steps.where((s) => s.type != StepType.reboot).toList();
+      final tail = steps.where((s) => s.type == StepType.reboot).toList();
+
+      Future<void> runScenarioStep(int index, JobStep step) async {
         final title = step.title.isEmpty
-            ? 'Шаг ${i + 1} из ${steps.length}'
+            ? 'Шаг ${index + 1} из ${steps.length}'
             : step.title;
         void report(double within) => state = state.copyWith(
           stepTitle: title,
-          progress: (i + within) / steps.length,
+          progress: (index + within) / total,
         );
         report(0);
-        log.writeln('[${i + 1}/${steps.length}] $title');
+        log.writeln('[${index + 1}/${steps.length}] $title');
         await _runStep(step, adb.serial!, executor, backend, report, log);
+      }
+
+      // 1. Основной пакет из облака
+      for (var i = 0; i < main.length; i++) {
+        await runScenarioStep(i, main[i]);
+      }
+
+      // 2. Свои APK мастера. Сбой одного файла не отменяет основной пакет и остальные файлы.
+      final failed = <String>[];
+      for (var j = 0; j < customs.length; j++) {
+        final apk = customs[j];
+        final title = 'Установка пользовательского файла: ${apk.name}...';
+        void report(double within) => state = state.copyWith(
+          stepTitle: title,
+          progress: (main.length + j + within) / total,
+        );
+        report(0);
+        log.writeln('[custom ${j + 1}/${customs.length}] ${apk.name}');
+        try {
+          await _installCustom(apk, adb.serial!, executor, report);
+        } catch (e) {
+          failed.add(apk.name);
+          log.writeln('Не установлен ${apk.name}: $e');
+        }
+      }
+
+      // 3. Перезагрузка
+      for (var k = 0; k < tail.length; k++) {
+        await runScenarioStep(main.length + customs.length + k, tail[k]);
       }
 
       await backend.finishJob(jobId, success: true, log: log.toString());
@@ -128,6 +195,9 @@ class JobController extends Notifier<JobState> {
         phase: JobPhase.success,
         progress: 1,
         stepTitle: 'Готово',
+        message: failed.isEmpty
+            ? null
+            : 'Основной пакет установлен. Не удалось установить: ${failed.join(', ')}',
       );
       ref.invalidate(balanceProvider);
     } catch (e) {
@@ -148,6 +218,33 @@ class JobController extends Notifier<JobState> {
       );
       ref.invalidate(balanceProvider);
     }
+  }
+
+  Future<void> _installCustom(
+    CustomApk apk,
+    String serial,
+    AdbExecutor executor,
+    void Function(double) report,
+  ) async {
+    final file = File(apk.path);
+    if (!await file.exists()) throw JobException('Файл не найден');
+    final size = await file.length();
+    if (size == 0) throw JobException('Файл пуст');
+    var done = 0;
+    final stream = file.openRead().map((chunk) {
+      done += chunk.length;
+      report((done / size).clamp(0, 1).toDouble());
+      return chunk;
+    });
+    await executor.pipe(serial, [
+      'cmd',
+      'package',
+      'install',
+      '-r',
+      '-S',
+      '$size',
+    ], stream);
+    report(1);
   }
 
   Future<void> _runStep(

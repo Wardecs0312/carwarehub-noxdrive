@@ -39,6 +39,7 @@ dependencies:
   package_info_plus: ^10.2.2
   cryptography: ^2.9.0
   url_launcher: ^6.3.3
+  file_picker: ^13.1.0
 
 dev_dependencies:
   flutter_test:

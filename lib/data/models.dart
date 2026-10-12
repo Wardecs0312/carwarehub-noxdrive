@@ -18,17 +18,22 @@ class ServiceItem {
     required this.code,
     required this.title,
     required this.priceCredits,
+    this.allowCustomApks = false,
   });
   final int id;
   final String code;
   final String title;
   final int priceCredits;
 
+  /// Для услуги можно добавить свои APK (услуги установки).
+  final bool allowCustomApks;
+
   factory ServiceItem.fromJson(Map<String, dynamic> j) => ServiceItem(
     id: j['id'] as int,
     code: j['code'] as String,
     title: j['title'] as String,
     priceCredits: (j['price_credits'] as int?) ?? 0,
+    allowCustomApks: (j['allow_custom_apks'] as bool?) ?? false,
   );
 }
 

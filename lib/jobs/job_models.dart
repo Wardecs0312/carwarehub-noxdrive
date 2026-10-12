@@ -93,3 +93,57 @@ class JobException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Собственный APK мастера, добавленный в окне настройки пакета.
+class CustomApk {
+  const CustomApk({
+    required this.path,
+    required this.name,
+    required this.sizeBytes,
+    this.selected = true,
+  });
+  final String path;
+  final String name;
+  final int sizeBytes;
+  final bool selected;
+
+  CustomApk copyWith({bool? selected}) => CustomApk(
+    path: path,
+    name: name,
+    sizeBytes: sizeBytes,
+    selected: selected ?? this.selected,
+  );
+}
+
+/// Предпросмотр основного пакета услуги: что будет установлено и сколько это стоит.
+class PackagePreview {
+  const PackagePreview({
+    required this.items,
+    required this.price,
+    required this.repeat,
+  });
+  final List<String> items;
+  final int price;
+  final bool repeat;
+
+  factory PackagePreview.fromJson(Map<String, dynamic> j) => PackagePreview(
+    price: (j['price'] as num).toInt(),
+    repeat: (j['repeat'] as bool?) ?? false,
+    items: [
+      for (final e in (j['items'] as List))
+        if ((e as Map)['type'] != 'reboot')
+          _itemTitle(Map<String, dynamic>.from(e)),
+    ],
+  );
+
+  static String _itemTitle(Map<String, dynamic> e) {
+    final title = e['title'] as String?;
+    if (title != null && title.isNotEmpty) return title;
+    return switch (e['type']) {
+      'install_apk' => 'Установка приложения',
+      'run_script' => 'Выполнение сценария настройки',
+      'uninstall' => 'Удаление приложений',
+      _ => 'Настройка системы',
+    };
+  }
+}

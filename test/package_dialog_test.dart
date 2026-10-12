@@ -1,0 +1,141 @@
+import 'package:carwarehub_noxdrive/adb/adb_status.dart';
+import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
+import 'package:carwarehub_noxdrive/jobs/apk_picker.dart';
+import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
+import 'package:carwarehub_noxdrive/jobs/job_models.dart';
+import 'package:carwarehub_noxdrive/main.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'fakes.dart';
+
+Future<void> _open(
+  WidgetTester tester,
+  FakePicker picker,
+  FakeBackend backend,
+  FakeExecutor exec,
+) async {
+  tester.view.physicalSize = const Size(1400, 1000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        adbStatusProvider.overrideWith(
+          (_) => Stream.value(
+            const AdbStatus(AdbConnection.connected, serial: 'A'),
+          ),
+        ),
+        apkPickerProvider.overrideWithValue(picker),
+        jobBackendProvider.overrideWithValue(backend),
+        adbExecutorProvider.overrideWithValue(exec),
+        appVersionProvider.overrideWith((_) async => '1.0.0+1'),
+      ],
+      child: const NoxDriveApp(),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const Key('vin-field')),
+    'LS5A3ABC1NA000123',
+  );
+  await tester.tap(find.text('Changan Q05'));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  const a = CustomApk(
+    path: '/x/YandexNavigator.apk',
+    name: 'YandexNavigator.apk',
+    sizeBytes: 5 * 1024 * 1024,
+  );
+  const b = CustomApk(path: '/x/Other.apk', name: 'Other.apk', sizeBytes: 2048);
+
+  testWidgets(
+    'услуга [1] открывает окно настройки пакета, а не запускается сразу',
+    (tester) async {
+      final backend = FakeBackend(
+        const JobTicket(jobId: 'j', price: 0, repeat: false, steps: []),
+        const [],
+      );
+      final exec = FakeExecutor();
+      await _open(tester, FakePicker([a, b]), backend, exec);
+
+      await tester.tap(find.text('Русификация и установка приложений'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Настройка пакета установки'), findsOneWidget);
+      expect(find.text('Яндекс Навигатор'), findsOneWidget); // основной пакет
+      expect(find.text('Свои файлы не добавлены'), findsOneWidget);
+      expect(exec.calls, isEmpty);
+
+      await tester.tap(find.byKey(const Key('add-apk')));
+      await tester.pumpAndSettle();
+      expect(find.text('YandexNavigator.apk'), findsOneWidget);
+      expect(find.text('5.0 МБ'), findsOneWidget);
+      expect(find.text('2 КБ'), findsOneWidget);
+      expect(find.text('Начать установку (+2)'), findsOneWidget);
+
+      // снять галочку с первого файла
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Начать установку (+1)'), findsOneWidget);
+
+      // убрать второй из списка
+      await tester.tap(find.byIcon(Icons.close).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Other.apk'), findsNothing);
+      expect(find.text('Начать установку'), findsOneWidget);
+    },
+  );
+
+  testWidgets('отмена не запускает установку', (tester) async {
+    final exec = FakeExecutor();
+    await _open(
+      tester,
+      FakePicker([a]),
+      FakeBackend(
+        const JobTicket(jobId: 'j', price: 0, repeat: false, steps: []),
+        const [],
+      ),
+      exec,
+    );
+    await tester.tap(find.text('Русификация и установка приложений'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Отмена'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Настройка пакета установки'), findsNothing);
+    expect(exec.calls, isEmpty);
+    expect(find.byKey(const Key('job-progress')), findsNothing);
+  });
+
+  testWidgets('услуга без своих APK запускается сразу, без окна настройки', (
+    tester,
+  ) async {
+    final exec = FakeExecutor();
+    await _open(
+      tester,
+      FakePicker([]),
+      FakeBackend(
+        const JobTicket(
+          jobId: 'j',
+          price: 0,
+          repeat: false,
+          steps: [
+            JobStep(type: StepType.shell, title: 'Проверка', cmd: 'echo'),
+          ],
+        ),
+        const [],
+      ),
+      exec,
+    );
+    await tester.tap(find.text('Перезагрузка автомобиля'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Настройка пакета установки'), findsNothing);
+    expect(find.text('Услуга успешно выполнена'), findsOneWidget);
+    expect(exec.calls, ['shell:echo']);
+  });
+}
