@@ -205,11 +205,15 @@ void main() {
     });
   });
 
-  test('приборка [6]: один apk, выдача разрешений', () {
-    final plan = planCluster([1, 2, 3]);
+  test('приборка [6]: подготовка как в остальных услугах, затем один apk с выдачей разрешений', () {
+    final plan = planCluster([1, 2, 3], prep: _prep);
     final steps = plan.steps(_ids(plan));
-    expect(steps.single['type'], 'install_apk');
-    expect(steps.single['grant'], true);
-    expect(steps.single['payload_id'], 'id:cluster.apk');
+    expect(steps.map((s) => s['type']), ['run_script', 'install_apk']);
+    expect(steps.last['grant'], true);
+    expect(steps.last['payload_id'], 'id:cluster.apk');
+    expect(
+      String.fromCharCodes(plan.files.first.bytes),
+      '$_prep\nsetprop vecentek.model 1\n',
+    );
   });
 }

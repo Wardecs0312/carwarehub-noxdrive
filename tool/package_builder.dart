@@ -196,19 +196,30 @@ RecipePlan planSystemApps(Archive zip, {required String prep}) {
   );
 }
 
-/// [6] Приложение для приборной панели: один .apk, установка с выдачей разрешений.
-/// Предположение: подготовка (disable-verify) не нужна, в батнике для этой услуги нет ветки.
-RecipePlan planCluster(List<int> apk) => RecipePlan(
-  files: [PlanFile(key: 'cluster.apk', bytes: apk, kind: 'apk')],
-  steps: (ids) => _resolve([
-    {
-      'type': 'install_apk',
-      'title': 'Установка приложения для приборной панели',
-      'payload_key': 'cluster.apk',
-      'grant': true,
-    },
-  ], ids),
-);
+/// [6] Приложение для приборной панели: подготовка (как в [2] и [5]: доступ ADB и setprop),
+/// затем один .apk с выдачей разрешений. В батнике для этой услуги ветки нет, подготовка добавлена по решению заказчика.
+RecipePlan planCluster(List<int> apk, {required String prep}) {
+  final pre = _lines([prep.trim(), 'setprop vecentek.model 1']);
+  return RecipePlan(
+    files: [
+      PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
+      PlanFile(key: 'cluster.apk', bytes: apk, kind: 'apk'),
+    ],
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Подготовка системы',
+        'payload_key': 'pre.sh',
+      },
+      {
+        'type': 'install_apk',
+        'title': 'Установка приложения для приборной панели',
+        'payload_key': 'cluster.apk',
+        'grant': true,
+      },
+    ], ids),
+  );
+}
 
 /// [2] Голосовое управление. Повторяет ветку :voice батника: файлы кладутся в /data/local/tmp,
 /// SpeechHMI устанавливается, затем всё переносится в /resources/appdata/tinnove/, временные файлы удаляются.

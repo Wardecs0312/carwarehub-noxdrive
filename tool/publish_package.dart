@@ -153,7 +153,7 @@ Future<void> main(List<String> argv) async {
   RecipePlan plan;
   try {
     plan = switch (recipe) {
-      'cluster' => planCluster(data),
+      'cluster' => planCluster(data, prep: prep),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),
       _ => planVoice(ZipDecoder().decodeBytes(data), prep: prep),
