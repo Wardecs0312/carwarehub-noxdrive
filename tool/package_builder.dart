@@ -134,10 +134,10 @@ List<Map<String, dynamic>> _resolve(
 String _lines(List<String> l) => '${l.join('\n')}\n';
 
 /// [1] Русификация: подготовка, затем все .apk из soft/ с выдачей разрешений (`adb install -r -g`).
+/// Без папки soft/ пакет состоит только из подготовки: приложения мастер добавляет сам («Добавить свои APK»).
 /// [prep] содержит строку(и) доступа (disable-verify) и хранится только у администратора.
 RecipePlan planRussify(Archive zip, {required String prep}) {
   final apks = apksInDir(zip, 'soft');
-  if (apks.isEmpty) throw RecipeException('В архиве нет .apk в папке soft/');
   final pre = _lines([
     prep.trim(),
     'am start -n com.android.settings/.Settings',

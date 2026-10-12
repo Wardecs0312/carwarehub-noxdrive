@@ -74,16 +74,15 @@ void main() {
       expect(plan.files.map((f) => f.key), ['pre.sh', 'soft/app.apk']);
     });
 
-    test('нет apk: понятная ошибка', () {
-      expect(
-        () => planRussify(
-          _zip({
-            'x.txt': [1],
-          }),
-          prep: _prep,
-        ),
-        throwsA(isA<RecipeException>()),
+    test('нет apk: пакет только из подготовки, приложения добавляет мастер', () {
+      final plan = planRussify(
+        _zip({
+          'x.txt': [1],
+        }),
+        prep: _prep,
       );
+      expect(plan.files.map((f) => f.key), ['pre.sh']);
+      expect(plan.steps(_ids(plan)).map((s) => s['type']), ['run_script']);
     });
   });
 
