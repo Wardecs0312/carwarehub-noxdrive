@@ -171,7 +171,9 @@ class Updater {
     if (!_isWindows) return;
     try {
       await for (final e in installDir.list(recursive: true)) {
-        if (e is File && e.path.endsWith(oldSuffix)) {
+        // *.nox-old — от замены изнутри программы, *.old — от update.bat.
+        if (e is File &&
+            (e.path.endsWith(oldSuffix) || e.path.endsWith('.old'))) {
           try {
             await e.delete();
           } catch (_) {}
@@ -204,19 +206,27 @@ set "EXE=%~3"
 set "APPPID=%~4"
 set "LOG=%TEMP%\nox_update.log"
 echo %date% %time% bat: start >> "%LOG%"
-rem Даём программе секунду закрыться самой, затем закрываем принудительно: её процесс и все
-rem окна этой программы (второй открытый экземпляр тоже держит DLL, например app_links_plugin.dll).
+rem 1. Даём программе секунду закрыться самой, затем принудительно закрываем ВСЕ её процессы
+rem    вместе с дочерними (/T): второе открытое окно тоже держит DLL, например app_links_plugin.dll.
 ping -n 2 127.0.0.1 >nul 2>&1
-taskkill /F /PID %APPPID% >nul 2>&1
-taskkill /F /IM "%EXE%" >nul 2>&1
+taskkill /F /T /PID %APPPID% >nul 2>&1
+taskkill /F /T /IM "%EXE%" >nul 2>&1
+taskkill /F /T /IM CarWareHubNoxDrive.exe >nul 2>&1
+taskkill /F /T /IM NoxDrive.exe >nul 2>&1
 if exist "%DST%\adb\adb.exe" "%DST%\adb\adb.exe" kill-server >nul 2>&1
 taskkill /F /IM scrcpy.exe >nul 2>&1
-rem Пауза 2 с, чтобы Windows освободила DLL. timeout без окна консоли не работает, поэтому ping.
-ping -n 3 127.0.0.1 >nul 2>&1
-robocopy "%SRC%" "%DST%" /E /R:30 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
+rem 2. Пауза 3 с, чтобы Windows освободила файлы. Это аналог timeout /t 3 /nobreak:
+rem    сам timeout в скрипте без окна консоли не работает, поэтому ping (4 ответа = 3 с).
+ping -n 4 127.0.0.1 >nul 2>&1
+rem 3. Старые DLL/EXE/данные, которые заменяются, переименовываются в *.old: Windows разрешает
+rem    переименовать даже занятый файл, и robocopy пишет новый файл на свободное имя.
+rem    Файлы *.old программа удаляет сама при следующем запуске.
+for /r "%SRC%" %%F in (*.dll *.exe *.so *.dat) do call :moveold "%%F"
+rem 4. Копирование новой версии поверх.
+robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
 if %ERRORLEVEL% GEQ 8 (
   echo %date% %time% bat: files still locked, retry >> "%LOG%"
-  taskkill /F /IM "%EXE%" >nul 2>&1
+  taskkill /F /T /IM "%EXE%" >nul 2>&1
   ping -n 4 127.0.0.1 >nul 2>&1
   robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
 )
@@ -224,6 +234,16 @@ set RC=%ERRORLEVEL%
 echo %date% %time% bat: robocopy rc=%RC% >> "%LOG%"
 set "NOX_UPDATE_SELFTEST="
 start "" /D "%DST%" "%DST%\%EXE%"
+exit /b 0
+
+:moveold
+rem %1 — файл новой версии; такой же файл в папке программы переименовывается в .old
+set "REL=%~1"
+call set "REL=%%REL:%SRC%\=%%"
+if exist "%DST%\%REL%" (
+  if exist "%DST%\%REL%.old" del /f /q "%DST%\%REL%.old" >nul 2>&1
+  move /y "%DST%\%REL%" "%DST%\%REL%.old" >nul 2>&1
+)
 exit /b 0
 ''';
 

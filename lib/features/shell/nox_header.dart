@@ -12,6 +12,7 @@ import 'adb_status_badge.dart';
 import 'metal_text.dart';
 
 const kSupportTelegram = '@wiqqq99';
+const kInstagram = '@nox.drive.kg';
 
 class NoxHeader extends ConsumerWidget {
   const NoxHeader({super.key});
@@ -178,22 +179,72 @@ class _Brand extends StatelessWidget {
 class _SupportStrip extends StatelessWidget {
   const _SupportStrip();
 
+  static const _style = TextStyle(
+    fontSize: 12,
+    letterSpacing: 2,
+    color: NoxColors.metalMid,
+  );
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+    color: NoxColors.bg,
+    // На телефоне две ссылки переносятся в две строки.
+    child: Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 18,
+      runSpacing: 2,
+      children: [
+        _Link(
+          key: const Key('support-telegram'),
+          text: 'ДЛЯ АДБ ДОСТУПА ПИСАТЬ В ТГ $kSupportTelegram',
+          url: 'https://t.me/${kSupportTelegram.substring(1)}',
+          style: _style,
+        ),
+        _Link(
+          key: const Key('support-instagram'),
+          text: 'INSTAGRAM $kInstagram',
+          url: 'https://instagram.com/${kInstagram.substring(1)}',
+          style: _style,
+          icon: Icons.camera_alt_outlined,
+        ),
+      ],
+    ),
+  );
+}
+
+class _Link extends StatelessWidget {
+  const _Link({
+    super.key,
+    required this.text,
+    required this.url,
+    required this.style,
+    this.icon,
+  });
+  final String text;
+  final String url;
+  final TextStyle style;
+  final IconData? icon;
+
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: () =>
-        launchUrl(Uri.parse('https://t.me/${kSupportTelegram.substring(1)}')),
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      color: NoxColors.bg,
-      alignment: Alignment.center,
-      child: const Text(
-        'ДЛЯ АДБ ДОСТУПА ПИСАТЬ В ТГ $kSupportTelegram',
-        style: TextStyle(
-          fontSize: 12,
-          letterSpacing: 2,
-          color: NoxColors.metalMid,
-        ),
+        launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: style.color),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(text, style: style, textAlign: TextAlign.center),
+          ),
+        ],
       ),
     ),
   );

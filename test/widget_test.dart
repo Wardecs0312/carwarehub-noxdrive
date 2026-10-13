@@ -41,6 +41,7 @@ void main() {
     expect(find.text('nox.drive'), findsOneWidget);
     expect(find.text('AUTOMOTIVE TECHNOLOGY'), findsOneWidget);
     expect(find.text('ДЛЯ АДБ ДОСТУПА ПИСАТЬ В ТГ @wiqqq99'), findsOneWidget);
+    expect(find.text('INSTAGRAM @nox.drive.kg'), findsOneWidget);
   });
 
   testWidgets('нет ADB: красный индикатор, услуги заблокированы с подсказкой', (
