@@ -47,6 +47,14 @@ Future<bool> signUp({
       password: password,
       data: {'via': 'email', 'name': name.trim(), 'phone': phone.trim()},
     );
+    // Админ получает в Telegram заявку с кнопками «Одобрить» / «Отклонить». Сбой уведомления
+    // не мешает регистрации: заявка всё равно видна в админ-панели.
+    try {
+      await Supabase.instance.client.functions.invoke(
+        'telegram-auth',
+        body: {'action': 'notify_signup', 'email': email.trim()},
+      );
+    } catch (_) {}
     return r.session == null;
   } on AuthException catch (e) {
     final m = e.message.toLowerCase();
