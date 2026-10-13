@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/env.dart';
+import '../../app/owner.dart';
 import '../../core/json.dart';
 import '../../data/auth_repository.dart';
 
@@ -199,6 +200,8 @@ final adminRepositoryProvider = Provider((_) => AdminRepository());
 final isAdminProvider = FutureProvider<bool>((ref) async {
   final session = ref.watch(sessionProvider).value;
   if (!Env.hasSupabase || session == null) return false;
+  // Владелец — администратор всегда, без запроса к серверу.
+  if (isOwnerUser(session.user)) return true;
   // При запуске сохранённый токен может быть просрочен, пока Supabase его обновляет:
   // одна неудачная проверка не должна навсегда прятать админ-панель.
   final client = Supabase.instance.client;

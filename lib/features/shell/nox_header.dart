@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../data/auth_repository.dart';
 import '../admin/admin_repository.dart';
 import '../admin/admin_screen.dart';
+import '../history/history_screen.dart';
 import 'adb_status_badge.dart';
 import 'metal_text.dart';
 
@@ -36,13 +37,36 @@ class NoxHeader extends ConsumerWidget {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   const AdbStatusBadge(),
-                  if (balance != null)
+                  // Администратор видит свою роль, а не баланс мастера (у админа он обычно 0).
+                  if (isAdmin)
+                    const Text(
+                      'Администратор',
+                      style: TextStyle(
+                        color: NoxColors.ok,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  else if (balance != null)
                     Text(
                       'Баланс: $balance кр.',
                       style: const TextStyle(color: NoxColors.metalLight),
                     ),
                 ],
               );
+              final history = Env.hasSupabase
+                  ? IconButton(
+                      tooltip: 'Моя история',
+                      icon: const Icon(
+                        Icons.history,
+                        color: NoxColors.metalMid,
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const HistoryScreen(),
+                        ),
+                      ),
+                    )
+                  : null;
               final logout = Env.hasSupabase
                   ? IconButton(
                       tooltip: 'Выйти',
@@ -76,6 +100,7 @@ class NoxHeader extends ConsumerWidget {
                           Row(
                             children: [
                               const Expanded(child: _Brand(compact: true)),
+                              ?history,
                               ?admin,
                               ?logout,
                             ],
@@ -89,6 +114,7 @@ class NoxHeader extends ConsumerWidget {
                           const _Brand(compact: false),
                           const Spacer(),
                           status,
+                          ?history,
                           ?admin,
                           ?logout,
                         ],

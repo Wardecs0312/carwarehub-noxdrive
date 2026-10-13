@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../history/history_repository.dart';
+import '../history/history_screen.dart';
 import '../stream/stream_viewer_screen.dart';
 import 'admin_repository.dart';
 
@@ -12,7 +14,7 @@ class AdminScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-    length: 3,
+    length: 4,
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Админ-панель'),
@@ -21,13 +23,14 @@ class AdminScreen extends StatelessWidget {
           isScrollable: true,
           tabs: [
             Tab(icon: Icon(Icons.people_outline), text: 'Мастера'),
+            Tab(icon: Icon(Icons.receipt_long), text: 'Журнал'),
             Tab(icon: Icon(Icons.undo), text: 'Возвраты'),
             Tab(icon: Icon(Icons.videocam_outlined), text: 'Трансляции'),
           ],
         ),
       ),
       body: const TabBarView(
-        children: [_MastersTab(), _RefundsTab(), _StreamsTab()],
+        children: [_MastersTab(), _JournalTab(), _RefundsTab(), _StreamsTab()],
       ),
     ),
   );
@@ -400,4 +403,17 @@ class _StreamsTab extends ConsumerWidget {
           ),
         ),
       );
+}
+
+/// Журнал операций всех мастеров: кто, когда, какое авто, услуга, прошивка, статус.
+class _JournalTab extends ConsumerWidget {
+  const _JournalTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => HistoryList(
+    value: ref.watch(allHistoryProvider),
+    onRefresh: () => ref.refresh(allHistoryProvider.future),
+    showMaster: true,
+    empty: 'Операций пока нет. Здесь появится каждая услуга, запущенная мастерами.',
+  );
 }
