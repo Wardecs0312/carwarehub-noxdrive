@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,8 +25,20 @@ Future<void> main() async {
       publishableKey: Env.supabaseAnonKey,
     );
   }
-  // Остатки прошлого обновления (*.nox-old, временные папки) убираются в фоне.
-  unawaited(Updater.cleanupOldFiles());
+  // Проверка установки обновления без входа (только для разработчика):
+  // NOX_UPDATE_SELFTEST=<папка с новой версией> — через 3 с программа ставит её через update.bat.
+  final selfTest = Updater.supported
+      ? Platform.environment['NOX_UPDATE_SELFTEST']
+      : null;
+  if (selfTest != null && selfTest.isNotEmpty) {
+    Timer(
+      const Duration(seconds: 3),
+      () => Updater.applyAndRestart(Directory(selfTest)),
+    );
+  } else {
+    // Остатки прошлого обновления (*.nox-old, временные папки) убираются в фоне.
+    unawaited(Updater.cleanupOldFiles());
+  }
   runApp(const ProviderScope(child: NoxDriveApp()));
 }
 

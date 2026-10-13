@@ -172,8 +172,64 @@ class Updater {
     } catch (_) {}
   }
 
-  /// Ставит новую версию поверх текущей и перезапускает программу.
+  /// update.bat: даёт программе закрыться, останавливает adb/scrcpy из её папки, копирует
+  /// новые файлы поверх (robocopy сам повторяет занятые файлы до 60 раз через 1 с) и запускает
+  /// программу снова. Пути приходят параметрами (%1..%4): кириллица и пробелы не ломают скрипт.
+  /// Скрипт работает без окна консоли, поэтому в нём нет конвейеров (`|`) и `timeout`:
+  /// без консоли они зависают или сразу падают. Пауза делается через ping.
+  static const updateBat = r'''@echo off
+setlocal
+set "SRC=%~1"
+set "DST=%~2"
+set "EXE=%~3"
+set "APPPID=%~4"
+set "LOG=%TEMP%\nox_update.log"
+echo %date% %time% bat: start >> "%LOG%"
+ping -n 3 127.0.0.1 >nul 2>&1
+if exist "%DST%\adb\adb.exe" "%DST%\adb\adb.exe" kill-server >nul 2>&1
+taskkill /F /IM scrcpy.exe >nul 2>&1
+robocopy "%SRC%" "%DST%" /E /R:60 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
+if %ERRORLEVEL% GEQ 8 (
+  echo %date% %time% bat: files locked, closing old process %APPPID% >> "%LOG%"
+  taskkill /F /PID %APPPID% >nul 2>&1
+  ping -n 3 127.0.0.1 >nul 2>&1
+  robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
+)
+set RC=%ERRORLEVEL%
+echo %date% %time% bat: robocopy rc=%RC% >> "%LOG%"
+set "NOX_UPDATE_SELFTEST="
+start "" /D "%DST%" "%DST%\%EXE%"
+exit /b 0
+''';
+
+  /// Обновление через update.bat: программа закрывается, скрипт меняет файлы и перезапускает её.
+  /// Если запустить скрипт не удалось, файлы меняются прямо из программы ([applyInPlace]).
   static Future<Never> applyAndRestart(Directory newDir) async {
+    final dst = installDir;
+    final exeName = Platform.resolvedExecutable
+        .split(Platform.pathSeparator)
+        .last;
+    final bat = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}nox_update.bat',
+    );
+    try {
+      await bat.writeAsString(updateBat.replaceAll('\n', '\r\n'));
+      log('bat: launch ${bat.path} src=${newDir.path} dst=${dst.path}');
+      await Process.start(bat.path, [
+        newDir.path,
+        dst.path,
+        exeName,
+        '$pid',
+      ], mode: ProcessStartMode.detached);
+      exit(0);
+    } catch (e) {
+      log('bat: launch failed ($e), replacing in place');
+    }
+    return applyInPlace(newDir);
+  }
+
+  /// Запасной путь: замена файлов самой программой и перезапуск.
+  static Future<Never> applyInPlace(Directory newDir) async {
     final dst = installDir;
     log('apply: ${newDir.path} -> ${dst.path}');
     // adb из папки программы держит adb.exe: останавливаем сервер, чтобы заменить файл.
