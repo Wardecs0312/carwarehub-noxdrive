@@ -16,6 +16,7 @@ class AdminScreen extends StatelessWidget {
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Админ-панель'),
+        actions: const [_TelegramSetupButton()],
         bottom: const TabBar(
           isScrollable: true,
           tabs: [
@@ -29,6 +30,25 @@ class AdminScreen extends StatelessWidget {
         children: [_MastersTab(), _RefundsTab(), _StreamsTab()],
       ),
     ),
+  );
+}
+
+/// Подключает Telegram-бота к функции входа (один раз после публикации telegram-auth).
+class _TelegramSetupButton extends ConsumerWidget {
+  const _TelegramSetupButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => IconButton(
+    tooltip: 'Подключить Telegram-бота',
+    icon: const Icon(Icons.send),
+    onPressed: () async {
+      try {
+        final msg = await ref.read(adminRepositoryProvider).setupTelegram();
+        if (context.mounted) _toast(context, msg);
+      } catch (e) {
+        if (context.mounted) _toast(context, 'Не удалось: $e');
+      }
+    },
   );
 }
 

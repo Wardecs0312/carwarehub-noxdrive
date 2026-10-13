@@ -125,6 +125,30 @@ class AdminRepository {
     params: {'p_master': masterId, 'p_status': status},
   );
 
+  /// Привязка бота к Edge Function telegram-auth. Возвращает текст для админа.
+  Future<String> setupTelegram() async {
+    try {
+      final r = await _db.functions.invoke(
+        'telegram-auth',
+        body: {'action': 'setup_webhook'},
+      );
+      return (r.data as Map)['ok'] == true
+          ? 'Telegram-бот подключён'
+          : 'Telegram ответил ошибкой';
+    } on FunctionException catch (e) {
+      final d = e.details;
+      final code = d is Map ? (d['error'] ?? d['description']) : null;
+      return switch (code) {
+        'TELEGRAM_NOT_CONFIGURED' =>
+          'В Supabase Secrets нет TELEGRAM_BOT_TOKEN',
+        'FORBIDDEN' => 'Нужны права администратора',
+        _ when e.status == 404 =>
+          'Функция telegram-auth ещё не опубликована в Supabase',
+        _ => 'Ошибка: ${code ?? e.status}',
+      };
+    }
+  }
+
   Future<List<RefundRow>> pendingRefunds() async {
     final rows = await _db
         .from('refund_requests')

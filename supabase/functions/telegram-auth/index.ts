@@ -5,7 +5,9 @@
 // 3. Программа опрашивает {action:"poll", nonce} -> при подтверждении получает token_hash
 //    и входит через supabase.auth.verifyOTP(type: magiclink). Новый мастер создаётся со статусом pending.
 //
-// Секреты (задаёт владелец): TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET.
+// Секрет (задаёт владелец): TELEGRAM_BOT_TOKEN. Необязательные: TELEGRAM_BOT_USERNAME (по умолчанию
+// NoxDrive_Bot), TELEGRAM_WEBHOOK_SECRET (по умолчанию выводится из токена бота).
+// Подключение бота к функции: админ нажимает «Подключить Telegram-бота» в админ-панели ({action:"setup_webhook"}).
 // Функция деплоится с выключенной проверкой JWT (webhook Telegram приходит без него).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -25,8 +27,32 @@ const admin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-const botUsername = Deno.env.get("TELEGRAM_BOT_USERNAME");
-const webhookSecret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+const botUsername = Deno.env.get("TELEGRAM_BOT_USERNAME") ?? "NoxDrive_Bot";
+
+// Секрет webhook: из переменной или SHA-256 от токена бота (знает только сервер; Telegram допускает [A-Za-z0-9_-]).
+async function getWebhookSecret(): Promise<string> {
+  const fromEnv = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+  if (fromEnv) return fromEnv;
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${botToken}:nox-webhook`));
+  return Array.from(new Uint8Array(d), (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+// Подключение бота к этой функции. Только для админа (проверка по его входу в программе).
+async function setupWebhook(req: Request) {
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+  });
+  const { data: isAdmin } = await db.rpc("nox_is_admin");
+  if (isAdmin !== true) return json({ error: "FORBIDDEN" }, 403);
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/telegram-auth`;
+  const r = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, secret_token: await getWebhookSecret(), allowed_updates: ["message"] }),
+  });
+  const res = await r.json();
+  return json({ ok: res.ok === true, description: res.description }, res.ok ? 200 : 502);
+}
 
 const newNonce = () => {
   const b = new Uint8Array(24);
@@ -97,11 +123,11 @@ async function poll(nonce: string) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (!botToken || !botUsername || !webhookSecret) return json({ error: "TELEGRAM_NOT_CONFIGURED" }, 503);
+  if (!botToken) return json({ error: "TELEGRAM_NOT_CONFIGURED" }, 503);
 
   // Webhook Telegram: проверяется секрет, заданный при setWebhook.
   if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== null) {
-    if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
+    if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== await getWebhookSecret()) {
       return new Response("forbidden", { status: 403 });
     }
     await onTelegramUpdate(await req.json().catch(() => null));
@@ -115,5 +141,6 @@ Deno.serve(async (req) => {
     return json({ nonce, link: `https://t.me/${botUsername}?start=${nonce}` });
   }
   if (body.action === "poll" && typeof body.nonce === "string") return poll(body.nonce);
+  if (body.action === "setup_webhook") return setupWebhook(req);
   return json({ error: "BAD_REQUEST" }, 400);
 });
