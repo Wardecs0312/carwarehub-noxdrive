@@ -204,14 +204,20 @@ set "EXE=%~3"
 set "APPPID=%~4"
 set "LOG=%TEMP%\nox_update.log"
 echo %date% %time% bat: start >> "%LOG%"
-ping -n 3 127.0.0.1 >nul 2>&1
+rem Даём программе секунду закрыться самой, затем закрываем принудительно: её процесс и все
+rem окна этой программы (второй открытый экземпляр тоже держит DLL, например app_links_plugin.dll).
+ping -n 2 127.0.0.1 >nul 2>&1
+taskkill /F /PID %APPPID% >nul 2>&1
+taskkill /F /IM "%EXE%" >nul 2>&1
 if exist "%DST%\adb\adb.exe" "%DST%\adb\adb.exe" kill-server >nul 2>&1
 taskkill /F /IM scrcpy.exe >nul 2>&1
-robocopy "%SRC%" "%DST%" /E /R:60 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
+rem Пауза 2 с, чтобы Windows освободила DLL. timeout без окна консоли не работает, поэтому ping.
+ping -n 3 127.0.0.1 >nul 2>&1
+robocopy "%SRC%" "%DST%" /E /R:30 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
 if %ERRORLEVEL% GEQ 8 (
-  echo %date% %time% bat: files locked, closing old process %APPPID% >> "%LOG%"
-  taskkill /F /PID %APPPID% >nul 2>&1
-  ping -n 3 127.0.0.1 >nul 2>&1
+  echo %date% %time% bat: files still locked, retry >> "%LOG%"
+  taskkill /F /IM "%EXE%" >nul 2>&1
+  ping -n 4 127.0.0.1 >nul 2>&1
   robocopy "%SRC%" "%DST%" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >> "%LOG%" 2>&1
 )
 set RC=%ERRORLEVEL%
