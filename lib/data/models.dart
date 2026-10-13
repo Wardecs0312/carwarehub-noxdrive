@@ -39,6 +39,64 @@ class ServiceItem {
   );
 }
 
+/// Строка прайс-листа (таблица price_groups): пакет или отдельная активация.
+/// 1 кредит = 1 ₽: эта цена списывается с баланса мастера.
+class PriceGroup {
+  const PriceGroup({
+    required this.code,
+    required this.title,
+    this.description,
+    required this.priceRub,
+    required this.priceUsd,
+    required this.items,
+    required this.naModels,
+  });
+
+  final String code;
+  final String title;
+  final String? description;
+  final int priceRub;
+  final int priceUsd;
+
+  /// Состав пакета; у пункта может быть список моделей, где он недоступен.
+  final List<({String title, List<String> naModels})> items;
+
+  /// Модели, для которых вся строка недоступна.
+  final List<String> naModels;
+
+  bool availableFor(String modelCode) => !naModels.contains(modelCode);
+
+  factory PriceGroup.fromJson(Map<String, dynamic> j) => PriceGroup(
+    code: str(j['code']),
+    title: str(j['title']),
+    description: strOrNull(j['description']),
+    priceRub: intOr(j['price_rub']),
+    priceUsd: intOr(j['price_usd']),
+    items: [
+      for (final i in (j['items'] as List?) ?? const [])
+        (
+          title: str(asMap(i)['title']),
+          naModels: [
+            for (final m in (asMap(i)['na_models'] as List?) ?? const [])
+              str(m),
+          ],
+        ),
+    ],
+    naModels: [for (final m in (j['na_models'] as List?) ?? const []) str(m)],
+  );
+}
+
+/// «4 000 ₽» с неразрывным пробелом между разрядами.
+String formatRub(int v) {
+  final s = v.toString();
+  final b = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(' ');
+    b.write(s[i]);
+  }
+  return '$b ₽';
+}
+
 /// Последняя доступная версия приложения (таблица app_releases) для Auto-Up.
 class AppRelease {
   const AppRelease({

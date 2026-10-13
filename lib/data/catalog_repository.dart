@@ -40,6 +40,17 @@ class CatalogRepository {
     return items.map((e) => e.$2).toList();
   }
 
+  /// Прайс-лист (пакеты и отдельные активации) с исключениями по моделям.
+  Future<List<PriceGroup>> priceGroups() async {
+    if (!Env.hasSupabase) return _demoPrices;
+    final rows = await _db
+        .from('price_groups')
+        .select()
+        .eq('is_active', true)
+        .order('sort_order');
+    return rows.map(PriceGroup.fromJson).toList();
+  }
+
   /// Возвращает релиз новее текущей версии приложения или null.
   Future<AppRelease?> availableUpdate() async {
     // PWA обновляется сама (service worker), проверка нужна только установленным сборкам.
@@ -70,6 +81,33 @@ String? get releasePlatform {
     _ => null,
   };
 }
+
+const _demoPrices = [
+  PriceGroup(
+    code: 'complex',
+    title: 'Комплексный пакет',
+    description: 'Разблокировка ADB, полный перевод системы, установка приложений, перевод приборной панели, голосовой ассистент',
+    priceRub: 4000,
+    priceUsd: 48,
+    items: [
+      (title: 'Разблокировка ADB', naModels: []),
+      (title: 'Полный перевод системы', naModels: []),
+      (title: 'Установка приложений', naModels: []),
+      (title: 'Перевод приборной панели', naModels: ['q05']),
+      (title: 'Голосовой ассистент', naModels: []),
+    ],
+    naModels: [],
+  ),
+  PriceGroup(
+    code: 'cluster',
+    title: 'Вывод приложений на приборную панель',
+    description: 'Отдельная активация',
+    priceRub: 2000,
+    priceUsd: 23,
+    items: [(title: 'Вывод приложений на приборную панель', naModels: [])],
+    naModels: ['q05'],
+  ),
+];
 
 const _demoModels = [
   CarModel(id: 1, code: 'q05', title: 'Changan Q05'),
@@ -133,6 +171,15 @@ final servicesProvider = FutureProvider((ref) async {
   final model = ref.watch(selectedModelProvider);
   if (model == null) return <ServiceItem>[];
   return ref.watch(catalogRepositoryProvider).servicesFor(model.id);
+});
+
+/// Прайс-лист. Если таблица ещё не создана (миграция 0008 не применена), карточка цены не показывается.
+final priceGroupsProvider = FutureProvider<List<PriceGroup>>((ref) async {
+  try {
+    return await ref.watch(catalogRepositoryProvider).priceGroups();
+  } catch (_) {
+    return const [];
+  }
 });
 
 final updateProvider = FutureProvider(

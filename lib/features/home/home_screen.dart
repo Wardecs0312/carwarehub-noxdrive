@@ -14,6 +14,7 @@ import '../../jobs/job_models.dart';
 import '../jobs/job_dialog.dart';
 import '../jobs/package_setup_dialog.dart';
 import '../shell/nox_header.dart';
+import 'price_card.dart';
 
 final vinProvider = StateProvider<String>((_) => '');
 
@@ -77,6 +78,10 @@ class HomeScreen extends ConsumerWidget {
                         error: (e, _) =>
                             Text('Не удалось загрузить модели: $e'),
                       ),
+                      if (selected != null) ...[
+                        const SizedBox(height: 20),
+                        PriceCard(model: selected),
+                      ],
                       const SizedBox(height: 28),
                       Row(
                         children: [
