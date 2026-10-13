@@ -8,6 +8,7 @@ import '../../data/auth_repository.dart';
 import '../../adb/adb_status_checker.dart';
 import '../admin/admin_repository.dart';
 import '../../core/json.dart';
+import 'stream_clock.dart';
 import 'stream_service.dart';
 
 /// Открытые запросы трансляции текущего мастера (Supabase Realtime, без опроса).
@@ -131,6 +132,13 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
     final open = ref.watch(myStreamSessionsProvider).value ?? const [];
     if (open.isEmpty) return const SizedBox.shrink();
     final live = open.any((r) => r['status'] == 'live');
+    final startedRaw = open
+        .where((r) => r['status'] == 'live')
+        .map((r) => r['started_at'])
+        .firstOrNull;
+    final startedAt = startedRaw == null
+        ? null
+        : DateTime.tryParse('$startedRaw');
     final sources = {
       for (final r in open)
         for (final s in (r['sources'] as List? ?? const []))
@@ -161,6 +169,16 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
                 ),
               ),
             ),
+            if (live && startedAt != null) ...[
+              const SizedBox(width: 8),
+              StreamClock(
+                startedAt: startedAt,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             if (_publisher.isActive)
               TextButton(
                 onPressed: _stopByMaster,

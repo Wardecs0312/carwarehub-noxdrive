@@ -80,6 +80,7 @@ class StreamSessionRow {
     required this.sources,
     required this.status,
     required this.createdAt,
+    this.startedAt,
   });
 
   final String id;
@@ -89,6 +90,9 @@ class StreamSessionRow {
   final String status;
   final DateTime createdAt;
 
+  /// Когда мастер начал трансляцию (null, пока ждём мастера).
+  final DateTime? startedAt;
+
   factory StreamSessionRow.fromJson(Map<String, dynamic> j) => StreamSessionRow(
     id: str(j['id']),
     masterId: str(j['master_id']),
@@ -96,6 +100,7 @@ class StreamSessionRow {
     sources: [for (final s in (j['sources'] as List? ?? const [])) str(s)],
     status: str(j['status']),
     createdAt: dateOrNow(j['created_at']),
+    startedAt: j['started_at'] == null ? null : dateOrNow(j['started_at']),
   );
 }
 
@@ -171,7 +176,9 @@ class AdminRepository {
   Future<List<StreamSessionRow>> streamSessions() async {
     final rows = await _db
         .from('stream_sessions')
-        .select('id, master_id, sources, status, created_at, masters(name)')
+        .select(
+          'id, master_id, sources, status, created_at, started_at, masters(name)',
+        )
         .neq('status', 'ended')
         .order('created_at', ascending: false);
     return [for (final r in rows) StreamSessionRow.fromJson(r)];

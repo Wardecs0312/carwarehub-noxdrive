@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../history/history_repository.dart';
 import '../history/history_screen.dart';
+import '../stream/stream_clock.dart';
 import '../stream/stream_viewer_screen.dart';
 import 'admin_repository.dart';
 
@@ -357,52 +358,55 @@ class _StreamsTab extends ConsumerWidget {
   const _StreamsTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) =>
-      _AsyncList<StreamSessionRow>(
-        value: ref.watch(adminStreamsProvider),
-        onRefresh: () => ref.refresh(adminStreamsProvider.future),
-        empty: 'Активных трансляций нет. Запросить трансляцию можно на вкладке «Мастера».',
-        itemBuilder: (s) => Card(
-          color: NoxColors.panelHi,
-          child: ListTile(
-            leading: Icon(
-              Icons.circle,
-              size: 14,
-              color: s.status == 'live' ? NoxColors.bad : NoxColors.warn,
-            ),
-            title: Text(s.masterName),
-            subtitle: Text(
-              '${s.status == 'live' ? 'В эфире' : 'Ожидает мастера'} · '
-              '${s.sources.map((x) => streamSources[x] ?? x).join(', ')}',
-            ),
-            trailing: Wrap(
-              spacing: 4,
-              children: [
-                IconButton(
-                  tooltip: 'Смотреть',
-                  icon: const Icon(Icons.play_circle_outline),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => StreamViewerScreen(
-                        masterId: s.masterId,
-                        masterName: s.masterName,
-                      ),
-                    ),
+  Widget build(
+    BuildContext context,
+    WidgetRef ref,
+  ) => _AsyncList<StreamSessionRow>(
+    value: ref.watch(adminStreamsProvider),
+    onRefresh: () => ref.refresh(adminStreamsProvider.future),
+    empty: 'Активных трансляций нет. Запросить трансляцию можно на вкладке «Мастера».',
+    itemBuilder: (s) => Card(
+      color: NoxColors.panelHi,
+      child: ListTile(
+        leading: Icon(
+          Icons.circle,
+          size: 14,
+          color: s.status == 'live' ? NoxColors.bad : NoxColors.warn,
+        ),
+        title: Text(s.masterName),
+        subtitle: Text(
+          '${s.status == 'live' ? (s.startedAt != null ? 'В эфире ${streamClockText(s.startedAt!, DateTime.now())}' : 'В эфире') : 'Ожидает мастера'} · '
+          '${s.sources.map((x) => streamSources[x] ?? x).join(', ')}',
+        ),
+        trailing: Wrap(
+          spacing: 4,
+          children: [
+            IconButton(
+              tooltip: 'Смотреть',
+              icon: const Icon(Icons.play_circle_outline),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => StreamViewerScreen(
+                    masterId: s.masterId,
+                    masterName: s.masterName,
+                    sessionId: s.id,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Завершить',
-                  icon: const Icon(Icons.stop_circle_outlined),
-                  onPressed: () async {
-                    await ref.read(adminRepositoryProvider).endStream(s.id);
-                    ref.invalidate(adminStreamsProvider);
-                  },
-                ),
-              ],
+              ),
             ),
-          ),
+            IconButton(
+              tooltip: 'Завершить',
+              icon: const Icon(Icons.stop_circle_outlined),
+              onPressed: () async {
+                await ref.read(adminRepositoryProvider).endStream(s.id);
+                ref.invalidate(adminStreamsProvider);
+              },
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }
 
 /// Журнал операций всех мастеров: кто, когда, какое авто, услуга, прошивка, статус.

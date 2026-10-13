@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/theme.dart';
 import '../admin/admin_repository.dart';
+import 'stream_clock.dart';
 import 'stream_service.dart';
 
 /// Просмотр трансляции мастера админом. Работает одинаково в PWA (телефон, ноутбук),
@@ -14,10 +16,14 @@ class StreamViewerScreen extends StatefulWidget {
     super.key,
     required this.masterId,
     required this.masterName,
+    this.sessionId,
   });
 
   final String masterId;
   final String masterName;
+
+  /// Строка stream_sessions: для времени начала и кнопки «Завершить трансляцию».
+  final String? sessionId;
 
   @override
   State<StreamViewerScreen> createState() => _StreamViewerScreenState();
@@ -26,6 +32,9 @@ class StreamViewerScreen extends StatefulWidget {
 class _StreamViewerScreenState extends State<StreamViewerScreen> {
   Room? _room;
   EventsListener<RoomEvent>? _events;
+  StreamSubscription<List<Map<String, dynamic>>>? _sessionSub;
+  DateTime? _startedAt;
+  bool _ending = false;
   String? _error;
   String? _expanded;
 
@@ -33,6 +42,61 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
   void initState() {
     super.initState();
     unawaited(_connect());
+    _watchSession();
+  }
+
+  /// Время начала и статус трансляции в реальном времени; если её завершили
+  /// (мастер или другой админ), окно просмотра закрывается.
+  void _watchSession() {
+    final id = widget.sessionId;
+    if (id == null) return;
+    _sessionSub = Supabase.instance.client
+        .from('stream_sessions')
+        .stream(primaryKey: ['id'])
+        .eq('id', id)
+        .listen((rows) {
+          if (!mounted || rows.isEmpty) return;
+          final r = rows.first;
+          if (r['status'] == 'ended') {
+            if (!_ending) Navigator.of(context).maybePop();
+            return;
+          }
+          setState(() => _startedAt = DateTime.tryParse('${r['started_at']}'));
+        });
+  }
+
+  Future<void> _end() async {
+    final id = widget.sessionId;
+    if (id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Завершить трансляцию?'),
+        content: Text('Трансляция у ${widget.masterName} остановится сразу.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Завершить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _ending = true);
+    try {
+      await AdminRepository().endStream(id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _ending = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Не удалось завершить: $e')));
+      }
+    }
   }
 
   Future<void> _connect() async {
@@ -56,6 +120,7 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
 
   @override
   void dispose() {
+    _sessionSub?.cancel();
     _events?.dispose();
     final room = _room;
     if (room != null) {
@@ -83,7 +148,37 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
         ? {_expanded!: tracks[_expanded]!}
         : tracks;
     return Scaffold(
-      appBar: AppBar(title: Text('Трансляция: ${widget.masterName}')),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Трансляция: ${widget.masterName}'),
+            if (_startedAt != null)
+              StreamClock(
+                startedAt: _startedAt!,
+                style: const TextStyle(fontSize: 13, color: NoxColors.bad),
+              )
+            else if (widget.sessionId != null)
+              const Text(
+                'ожидание мастера',
+                style: TextStyle(fontSize: 13, color: NoxColors.metalMid),
+              ),
+          ],
+        ),
+        actions: [
+          if (widget.sessionId != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilledButton.icon(
+                key: const Key('end-stream'),
+                style: FilledButton.styleFrom(backgroundColor: NoxColors.bad),
+                onPressed: _ending ? null : _end,
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Завершить трансляцию'),
+              ),
+            ),
+        ],
+      ),
       body: _error != null
           ? _Message(_error!)
           : _room == null

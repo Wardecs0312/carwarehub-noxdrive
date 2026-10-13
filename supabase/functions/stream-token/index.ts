@@ -3,7 +3,7 @@
 // Админ: право смотреть любую комнату, публиковать нельзя.
 // Секреты (задаёт владелец: supabase secrets set ...): LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
-import { AccessToken } from "npm:livekit-server-sdk@2.6.1";
+import { AccessToken, RoomServiceClient } from "npm:livekit-server-sdk@2.6.1";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -33,9 +33,13 @@ Deno.serve(async (req) => {
     }
     return undefined;
   };
-  let lkUrl = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
-  const lkKey = env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key");
-  const lkSecret = env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret");
+  let lkUrl: string | undefined = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
+  // Ключ и секрет LiveKit состоят из латиницы, цифр, «_» и «-»: всё остальное (пробелы, кавычки,
+  // невидимые символы из буфера обмена) — мусор от копирования, убираем.
+  const tidy = (s?: string) => s?.replace(/[^A-Za-z0-9_-]/g, "") || undefined;
+  const lkKey = tidy(env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key"));
+  const lkSecret = tidy(env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret"));
+  lkUrl = lkUrl?.replace(/["'\s]/g, "");
   if (lkUrl?.startsWith("https://")) lkUrl = "wss://" + lkUrl.slice("https://".length);
   if (!lkUrl || !lkKey || !lkSecret) {
     // Только имена недостающих секретов, без значений.
@@ -48,14 +52,37 @@ Deno.serve(async (req) => {
     return json({ error: "STREAMING_NOT_CONFIGURED", missing, seen }, 503);
   }
 
+  const body = await req.json().catch(() => ({}));
+
+  // Самопроверка настроек (без входа): секреты не раскрываются, только их форма и ответ LiveKit.
+  if (body.action === "check") {
+    const httpUrl = lkUrl.replace(/^wss:\/\//, "https://");
+    let livekit = "ok";
+    try {
+      await new RoomServiceClient(httpUrl, lkKey, lkSecret).listRooms();
+    } catch (e) {
+      livekit = String((e as Error)?.message ?? e).slice(0, 200);
+    }
+    const shape = (s: string) => ({
+      length: s.length,
+      start: s.slice(0, 3),
+      nonAscii: /[^\x21-\x7E]/.test(s),
+    });
+    return json({
+      livekit,
+      url: lkUrl.replace(/^wss:\/\//, "").split("/")[0],
+      urlScheme: lkUrl.split("://")[0],
+      key: shape(lkKey),
+      secret: { length: lkSecret.length, nonAscii: /[^\x21-\x7E]/.test(lkSecret) },
+    });
+  }
+
   // Клиент от имени вызывающего пользователя: RLS и nox_is_admin() работают как в приложении.
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
   });
   const { data: { user } } = await db.auth.getUser();
   if (!user) return json({ error: "UNAUTHORIZED" }, 401);
-
-  const body = await req.json().catch(() => ({}));
   const { data: isAdmin } = await db.rpc("nox_is_admin");
 
   let room: string;
