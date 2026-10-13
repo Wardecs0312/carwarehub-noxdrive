@@ -3,7 +3,7 @@
 // Админ: право смотреть любую комнату, публиковать нельзя.
 // Секреты (задаёт владелец: supabase secrets set ...): LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
-import { AccessToken, RoomServiceClient } from "npm:livekit-server-sdk@2.6.1";
+import { AccessToken } from "npm:livekit-server-sdk@2.6.1";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -57,9 +57,18 @@ Deno.serve(async (req) => {
   // Самопроверка настроек (без входа): секреты не раскрываются, только их форма и ответ LiveKit.
   if (body.action === "check") {
     const httpUrl = lkUrl.replace(/^wss:\/\//, "https://");
+    // Прямой запрос к API LiveKit (ListRooms) с токеном, подписанным этими ключами:
+    // 200 — ключи верны, 401 — LiveKit не принимает ключ или секрет.
     let livekit = "ok";
     try {
-      await new RoomServiceClient(httpUrl, lkKey, lkSecret).listRooms();
+      const probe = new AccessToken(lkKey, lkSecret, { identity: "nox-check", ttl: "5m" });
+      probe.addGrant({ roomList: true });
+      const r = await fetch(`${httpUrl.replace(/\/$/, "")}/twirp/livekit.RoomService/ListRooms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await probe.toJwt()}` },
+        body: "{}",
+      });
+      if (!r.ok) livekit = `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`;
     } catch (e) {
       livekit = String((e as Error)?.message ?? e).slice(0, 200);
     }
