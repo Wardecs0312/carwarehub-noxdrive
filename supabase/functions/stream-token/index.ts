@@ -19,10 +19,28 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  const lkUrl = Deno.env.get("LIVEKIT_URL");
-  const lkKey = Deno.env.get("LIVEKIT_API_KEY");
-  const lkSecret = Deno.env.get("LIVEKIT_API_SECRET");
-  if (!lkUrl || !lkKey || !lkSecret) return json({ error: "STREAMING_NOT_CONFIGURED" }, 503);
+  // Основные имена секретов и частые варианты (пробелы по краям значений убираются).
+  const env = (...names: string[]) => {
+    for (const n of names) {
+      const v = Deno.env.get(n)?.trim();
+      if (v) return v;
+    }
+    return undefined;
+  };
+  let lkUrl = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
+  const lkKey = env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key");
+  const lkSecret = env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret");
+  if (lkUrl?.startsWith("https://")) lkUrl = "wss://" + lkUrl.slice("https://".length);
+  if (!lkUrl || !lkKey || !lkSecret) {
+    // Только имена недостающих секретов, без значений.
+    const missing = [
+      !lkUrl && "LIVEKIT_URL",
+      !lkKey && "LIVEKIT_API_KEY",
+      !lkSecret && "LIVEKIT_API_SECRET",
+    ].filter(Boolean);
+    const seen = Object.keys(Deno.env.toObject()).filter((k) => /livekit/i.test(k));
+    return json({ error: "STREAMING_NOT_CONFIGURED", missing, seen }, 503);
+  }
 
   // Клиент от имени вызывающего пользователя: RLS и nox_is_admin() работают как в приложении.
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
