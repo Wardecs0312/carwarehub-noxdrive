@@ -42,7 +42,7 @@ packages:
     source: hosted
     version: "1.0.5"
   archive:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: archive
       sha256: f773153144ce0456ae77d96bd247f2efd58efe4f3e5ad42616d0385c031aea11
@@ -146,7 +146,7 @@ packages:
     source: hosted
     version: "0.3.5+5"
   crypto:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: crypto
       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf

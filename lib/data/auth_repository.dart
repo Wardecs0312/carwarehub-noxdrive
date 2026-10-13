@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -58,13 +60,31 @@ Future<bool> signUp({
   }
 }
 
+/// Бот входа (имя по умолчанию; сервер может прислать ссылку на другого бота).
+const kTelegramBot = 'NoxDrive_Bot';
+
+/// Одноразовый код входа: 24 случайных байта в hex (48 символов).
+String newTelegramNonce() {
+  final rnd = Random.secure();
+  return [
+    for (var i = 0; i < 24; i++)
+      rnd.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ].join();
+}
+
 /// Вход через Telegram: код и ссылка на бота (Edge Function telegram-auth).
+/// Код создаёт сама программа и передаёт серверу, поэтому формат ответа не важен:
+/// если сервер не прислал nonce/link, используются свои значения.
 Future<({String nonce, String link})> telegramStart() async {
-  final d = await _telegram({'action': 'start'});
-  return (
-    nonce: requireStr(d, 'nonce', 'Вход через Telegram'),
-    link: requireStr(d, 'link', 'Вход через Telegram'),
-  );
+  final own = newTelegramNonce();
+  final d = await _telegram({'action': 'start', 'nonce': own});
+  if (d['error'] != null) {
+    throw Exception('Ошибка входа через Telegram: ${str(d['error'])}');
+  }
+  final nonce = strOrNull(d['nonce']) ?? own;
+  final link =
+      strOrNull(d['link']) ?? 'https://t.me/$kTelegramBot?start=$nonce';
+  return (nonce: nonce, link: link);
 }
 
 /// Вызов Edge Function telegram-auth с понятными ошибками вместо падения на разборе ответа.
@@ -99,9 +119,14 @@ Future<bool> telegramPoll(String nonce) async {
         tokenHash: requireStr(d, 'token_hash', 'Вход через Telegram'),
       );
       return true;
-    default:
+    case 'expired' || 'invalid':
       throw Exception(
         'Код входа устарел. Нажмите «Войти через Telegram» ещё раз',
+      );
+    default:
+      throw Exception(
+        'Сервер входа через Telegram ответил неожиданно. '
+        'Опубликуйте функцию telegram-auth заново',
       );
   }
 }

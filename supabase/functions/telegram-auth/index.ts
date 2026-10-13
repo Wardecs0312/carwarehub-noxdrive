@@ -136,8 +136,12 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({}));
   if (body.action === "start") {
-    const nonce = newNonce();
-    await admin.from("telegram_logins").insert({ nonce });
+    // Программа присылает свой код (48 hex); если его нет или он неверный, создаём свой.
+    const nonce = typeof body.nonce === "string" && /^[0-9a-f]{32,128}$/.test(body.nonce)
+      ? body.nonce
+      : newNonce();
+    const { error } = await admin.from("telegram_logins").insert({ nonce });
+    if (error) return json({ error: "DB_ERROR" }, 500);
     return json({ nonce, link: `https://t.me/${botUsername}?start=${nonce}` });
   }
   if (body.action === "poll" && typeof body.nonce === "string") return poll(body.nonce);

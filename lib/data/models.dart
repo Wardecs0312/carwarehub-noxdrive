@@ -48,13 +48,21 @@ class AppRelease {
     required this.downloadPath,
     this.minSupportedVersion,
     this.releaseNotes,
+    this.sha256,
+    this.sizeBytes,
   });
   final String version;
   final int buildNumber;
   final bool isMandatory;
+
+  /// Путь в приватном bucket `releases` (zip папки программы или .apk).
   final String downloadPath;
   final String? minSupportedVersion;
   final String? releaseNotes;
+
+  /// Контрольная сумма файла: скачанное обновление без совпадения не устанавливается.
+  final String? sha256;
+  final int? sizeBytes;
 
   factory AppRelease.fromJson(Map<String, dynamic> j) => AppRelease(
     version: str(j['version']),
@@ -63,5 +71,7 @@ class AppRelease {
     downloadPath: str(j['download_path']),
     minSupportedVersion: strOrNull(j['min_supported_version']),
     releaseNotes: strOrNull(j['release_notes']),
+    sha256: strOrNull(j['sha256'])?.toLowerCase(),
+    sizeBytes: j['size_bytes'] == null ? null : intOr(j['size_bytes']),
   );
 }

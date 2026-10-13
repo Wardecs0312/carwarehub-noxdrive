@@ -60,7 +60,7 @@ class _AppGate extends ConsumerWidget {
 
     return Column(
       children: [
-        if (update != null) UpdateBanner(update),
+        if (update != null) UpdateOffer(update),
         const StreamBanner(),
         const Expanded(child: HomeScreen()),
       ],
