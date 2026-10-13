@@ -34,9 +34,10 @@ Deno.serve(async (req) => {
     return undefined;
   };
   let lkUrl: string | undefined = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
-  // Ключ и секрет LiveKit состоят из латиницы, цифр, «_» и «-»: всё остальное (пробелы, кавычки,
-  // невидимые символы из буфера обмена) — мусор от копирования, убираем.
-  const tidy = (s?: string) => s?.replace(/[^A-Za-z0-9_-]/g, "") || undefined;
+  // Из ключа и секрета убираются только пробелы, кавычки и невидимые символы из буфера обмена;
+  // остальные символы (в секрете бывают «/», «+», «=») сохраняются как есть.
+  const tidy = (s?: string) =>
+    s?.replace(/[\s"'`\u200B-\u200D\u2060\uFEFF]/g, "") || undefined;
   const lkKey = tidy(env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key"));
   const lkSecret = tidy(env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret"));
   lkUrl = lkUrl?.replace(/["'\s]/g, "");
