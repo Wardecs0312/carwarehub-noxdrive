@@ -92,9 +92,11 @@ Future<void> main(List<String> argv) async {
     'Content-Type': 'application/octet-stream',
     'x-upsert': 'true',
   });
+  // Повторная попытка той же версии обновляет запись (иначе в базе осталась бы сумма
+  // от прерванной попытки, а файл уже новый — программа отвергла бы обновление).
   await send(
     'POST',
-    '/rest/v1/app_releases',
+    '/rest/v1/app_releases?on_conflict=platform,channel,build_number',
     utf8.encode(
       jsonEncode({
         'platform': platform,
@@ -108,7 +110,10 @@ Future<void> main(List<String> argv) async {
         'is_mandatory': a['mandatory'] == 'true',
       }),
     ),
-    {'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+    {
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal,resolution=merge-duplicates',
+    },
   );
   // Старые версии этой платформы выключаются только после успешной загрузки новой:
   // если связь оборвётся раньше, у мастеров остаётся рабочая предыдущая версия.
