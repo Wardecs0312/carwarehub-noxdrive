@@ -52,11 +52,7 @@ void main() {
     expect(
       () => JobTicket.fromJson({'price': 1}),
       throwsA(
-        isA<Exception>().having(
-          (e) => '$e',
-          'текст',
-          contains('job_id'),
-        ),
+        isA<Exception>().having((e) => '$e', 'текст', contains('job_id')),
       ),
     );
     final step = JobStep.fromJson({'type': 'shell', 'title': null});

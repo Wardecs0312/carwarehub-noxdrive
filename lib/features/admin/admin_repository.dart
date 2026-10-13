@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -198,11 +199,23 @@ final adminRepositoryProvider = Provider((_) => AdminRepository());
 final isAdminProvider = FutureProvider<bool>((ref) async {
   final session = ref.watch(sessionProvider).value;
   if (!Env.hasSupabase || session == null) return false;
-  try {
-    return await Supabase.instance.client.rpc('nox_is_admin') as bool;
-  } catch (_) {
-    return false;
+  // При запуске сохранённый токен может быть просрочен, пока Supabase его обновляет:
+  // одна неудачная проверка не должна навсегда прятать админ-панель.
+  final client = Supabase.instance.client;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await client.rpc('nox_is_admin') == true;
+    } catch (e) {
+      debugPrint('nox_is_admin attempt $attempt failed: $e');
+      if (attempt == 0) {
+        try {
+          await client.auth.refreshSession();
+        } catch (_) {}
+      }
+      await Future<void>.delayed(Duration(seconds: 1 + attempt * 2));
+    }
   }
+  return false;
 });
 
 final adminMastersProvider = FutureProvider.autoDispose(

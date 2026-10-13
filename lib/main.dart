@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,6 +14,7 @@ import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/stream/stream_banner.dart';
 import 'features/update/update_ui.dart';
+import 'features/update/updater.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +24,8 @@ Future<void> main() async {
       publishableKey: Env.supabaseAnonKey,
     );
   }
+  // Остатки прошлого обновления (*.nox-old, временные папки) убираются в фоне.
+  unawaited(Updater.cleanupOldFiles());
   runApp(const ProviderScope(child: NoxDriveApp()));
 }
 

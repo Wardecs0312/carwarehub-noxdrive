@@ -14,7 +14,9 @@ AppRelease _release({bool mandatory = false}) => AppRelease.fromJson({
 });
 
 Future<void> _pump(WidgetTester tester, AppRelease r) => tester.pumpWidget(
-  MaterialApp(home: Scaffold(body: UpdateDialog(release: r))),
+  MaterialApp(
+    home: Scaffold(body: UpdateDialog(release: r)),
+  ),
 );
 
 void main() {

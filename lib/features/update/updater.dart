@@ -11,8 +11,9 @@ import '../../data/models.dart';
 ///
 /// 1. Скачивает zip новой версии из приватного bucket `releases` по временной ссылке (в фоне, с прогрессом).
 /// 2. Сверяет SHA-256 с `app_releases.sha256` — повреждённый или подменённый файл не ставится.
-/// 3. Распаковывает во временную папку и запускает скрипт замены: он ждёт закрытия программы,
-///    останавливает adb/scrcpy из папки программы, копирует новые файлы поверх и запускает программу снова.
+/// 3. Распаковывает во временную папку и сама заменяет свои файлы (занятые переименовывает в *.nox-old),
+///    запускает новую версию и закрывается. Старые файлы удаляются при следующем запуске.
+///    Журнал: %TEMP%\nox_update.log.
 ///
 /// На Android и в PWA используется [openUpdate] из update_ui.dart (установщик/браузер).
 class Updater {
@@ -30,6 +31,13 @@ class Updater {
     AppRelease r,
     void Function(double progress) onProgress,
   ) async {
+    // Запуск прямо из zip (Проводник распаковывает во временную папку): обновлять там бессмысленно.
+    if (installDir.path.startsWith(Directory.systemTemp.path)) {
+      throw UpdateException(
+        'Программа запущена прямо из архива. Распакуйте архив в обычную папку и запускайте оттуда',
+      );
+    }
+    log('download: ${r.version}+${r.buildNumber} ${r.downloadPath}');
     final url = await Supabase.instance.client.storage
         .from('releases')
         .createSignedUrl(r.downloadPath, 3600);
@@ -95,49 +103,107 @@ class Updater {
     throw UpdateException('В архиве обновления нет $exeName');
   }
 
-  /// Скрипт замены файлов (только ASCII: пути передаются параметрами, кириллица в путях не ломается).
-  static const _applyScript = r'''
-param([int]$ParentPid, [string]$Src, [string]$Dst, [string]$Exe)
-$ErrorActionPreference = 'SilentlyContinue'
-try { Wait-Process -Id $ParentPid -Timeout 60 } catch {}
-$adb = Join-Path $Dst 'adb\adb.exe'
-if (Test-Path -LiteralPath $adb) { & $adb kill-server | Out-Null }
-Get-Process adb, scrcpy | Where-Object { $_.Path -and $_.Path.StartsWith($Dst) } | Stop-Process -Force
-Start-Sleep -Milliseconds 700
-robocopy $Src $Dst /E /R:5 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-$code = $LASTEXITCODE
-Start-Process -FilePath (Join-Path $Dst $Exe) -WorkingDirectory $Dst
-if ($code -lt 8) { Remove-Item -LiteralPath (Split-Path $Src -Parent) -Recurse -Force }
-''';
+  /// Суффикс старых файлов, которые нельзя удалить, пока программа работает.
+  static const oldSuffix = '.nox-old';
 
-  /// Запускает замену и закрывает программу. Новая версия откроется сама.
+  /// Журнал обновления: %TEMP%\nox_update.log (что заменено, какие ошибки).
+  static File get logFile => File(
+    '${Directory.systemTemp.path}${Platform.pathSeparator}nox_update.log',
+  );
+
+  static void log(String line) {
+    try {
+      logFile.writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $line\n',
+        mode: FileMode.append,
+      );
+    } catch (_) {}
+  }
+
+  /// Замена файлов программой самой себе, без внешних скриптов.
+  /// Windows не даёт удалить или перезаписать запущенный exe и загруженные dll, но даёт их
+  /// переименовать: старый файл получает суффикс [oldSuffix], на его место кладётся новый.
+  /// Старые файлы удаляются при следующем запуске ([cleanupOldFiles]).
+  /// Возвращает число заменённых файлов.
+  static Future<int> replaceFiles(Directory from, Directory to) async {
+    var n = 0;
+    await for (final e in from.list(recursive: true)) {
+      if (e is! File) continue;
+      final rel = e.path.substring(from.path.length + 1);
+      final target = File('${to.path}${Platform.pathSeparator}$rel');
+      await target.parent.create(recursive: true);
+      if (await target.exists()) {
+        try {
+          await target.delete();
+        } on FileSystemException {
+          final old = File('${target.path}$oldSuffix');
+          if (await old.exists()) await old.delete();
+          await target.rename(old.path);
+        }
+      }
+      await e.copy(target.path);
+      n++;
+    }
+    return n;
+  }
+
+  /// Удаляет файлы *.nox-old, оставшиеся от прошлого обновления, и временные папки загрузки.
+  static Future<void> cleanupOldFiles() async {
+    if (!supported) return;
+    try {
+      await for (final e in installDir.list(recursive: true)) {
+        if (e is File && e.path.endsWith(oldSuffix)) {
+          try {
+            await e.delete();
+          } catch (_) {}
+        }
+      }
+      await for (final e in Directory.systemTemp.list()) {
+        if (e is Directory &&
+            e.path
+                .split(Platform.pathSeparator)
+                .last
+                .startsWith('nox_update_')) {
+          try {
+            await e.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Ставит новую версию поверх текущей и перезапускает программу.
   static Future<Never> applyAndRestart(Directory newDir) async {
-    final work = newDir.parent.path.endsWith('new')
-        ? newDir.parent.parent
-        : newDir.parent;
-    final script = File('${work.path}${Platform.pathSeparator}apply.ps1');
-    // BOM: Windows PowerShell 5 читает файл как UTF-8.
-    await script.writeAsString('﻿$_applyScript');
-    final exeName = Platform.resolvedExecutable
-        .split(Platform.pathSeparator)
-        .last;
-    await Process.start('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-WindowStyle',
-      'Hidden',
-      '-File',
-      script.path,
-      '-ParentPid',
-      '$pid',
-      '-Src',
-      newDir.path,
-      '-Dst',
-      installDir.path,
-      '-Exe',
-      exeName,
-    ], mode: ProcessStartMode.detached);
+    final dst = installDir;
+    log('apply: ${newDir.path} -> ${dst.path}');
+    // adb из папки программы держит adb.exe: останавливаем сервер, чтобы заменить файл.
+    final adb = File(
+      '${dst.path}${Platform.pathSeparator}adb${Platform.pathSeparator}adb.exe',
+    );
+    if (await adb.exists()) {
+      try {
+        await Process.run(adb.path, [
+          'kill-server',
+        ]).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
+    final int n;
+    try {
+      n = await replaceFiles(newDir, dst);
+    } catch (e) {
+      log('apply failed: $e');
+      throw UpdateException(
+        'Не удалось заменить файлы программы ($e). '
+        'Если программа лежит в Program Files, перенесите папку, например, на Рабочий стол',
+      );
+    }
+    log('apply: replaced $n files, restarting');
+    await Process.start(
+      Platform.resolvedExecutable,
+      const [],
+      workingDirectory: dst.path,
+      mode: ProcessStartMode.detached,
+    );
     exit(0);
   }
 }
