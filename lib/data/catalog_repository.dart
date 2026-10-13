@@ -85,8 +85,9 @@ String? get releasePlatform {
 const _demoPrices = [
   PriceGroup(
     code: 'complex',
-    title: 'Комплексный пакет',
+    title: 'Обычный доступ: русификация',
     description: 'Разблокировка ADB, полный перевод системы, установка приложений, перевод приборной панели, голосовой ассистент',
+    priceCredits: 4,
     priceRub: 4000,
     priceUsd: 48,
     items: [
@@ -101,7 +102,8 @@ const _demoPrices = [
   PriceGroup(
     code: 'cluster',
     title: 'Вывод приложений на приборную панель',
-    description: 'Отдельная активация',
+    description: 'Отдельный доступ',
+    priceCredits: 2,
     priceRub: 2000,
     priceUsd: 23,
     items: [(title: 'Вывод приложений на приборную панель', naModels: [])],

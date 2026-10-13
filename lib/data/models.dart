@@ -40,12 +40,13 @@ class ServiceItem {
 }
 
 /// Строка прайс-листа (таблица price_groups): пакет или отдельная активация.
-/// 1 кредит = 1 ₽: эта цена списывается с баланса мастера.
+/// С баланса мастера списываются кредиты ([priceCredits]); рубли и доллары — для справки.
 class PriceGroup {
   const PriceGroup({
     required this.code,
     required this.title,
     this.description,
+    required this.priceCredits,
     required this.priceRub,
     required this.priceUsd,
     required this.items,
@@ -55,6 +56,7 @@ class PriceGroup {
   final String code;
   final String title;
   final String? description;
+  final int priceCredits;
   final int priceRub;
   final int priceUsd;
 
@@ -70,6 +72,7 @@ class PriceGroup {
     code: str(j['code']),
     title: str(j['title']),
     description: strOrNull(j['description']),
+    priceCredits: intOr(j['price_credits']),
     priceRub: intOr(j['price_rub']),
     priceUsd: intOr(j['price_usd']),
     items: [

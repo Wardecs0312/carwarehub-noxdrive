@@ -7,8 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Демо-режим (без Supabase): прайс-лист из встроенных данных, как в базе после миграции 0008.
-Future<void> _pickModel(WidgetTester tester, String title) async {
-  tester.view.physicalSize = const Size(1400, 1600);
+Future<void> _pickModel(
+  WidgetTester tester,
+  String title, {
+  double width = 1400,
+}) async {
+  tester.view.physicalSize = Size(width, 1600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -26,25 +30,27 @@ Future<void> _pickModel(WidgetTester tester, String title) async {
   await tester.pumpAndSettle();
 }
 
-String _total(WidgetTester tester) =>
-    tester.widget<Text>(find.byKey(const Key('price-total'))).data!;
+String _text(WidgetTester tester, String key) =>
+    tester.widget<Text>(find.byKey(Key(key))).data!;
+
+const nb = ' ';
 
 void main() {
   test('рубли с пробелом между разрядами', () {
-    expect(formatRub(4000), '4 000 ₽');
-    expect(formatRub(500), '500 ₽');
+    expect(formatRub(4000), '4${nb}000$nb₽');
+    expect(formatRub(500), '500$nb₽');
   });
 
-  testWidgets('UNI-V: пакет и вывод на приборную панель, итог 6 000 ₽ / \$71', (
-    tester,
-  ) async {
+  testWidgets('UNI-V: 4 + 2 кредита, итог 6 кр.', (tester) async {
     await _pickModel(tester, 'Changan UNI-V');
     expect(find.text('Стоимость для Changan UNI-V'), findsOneWidget);
-    expect(find.text('Комплексный пакет'), findsOneWidget);
-    expect(find.text('4 000 ₽ / \$48'), findsOneWidget);
-    expect(find.text('2 000 ₽ / \$23'), findsOneWidget);
+    expect(find.text('Обычный доступ: русификация'), findsOneWidget);
+    expect(find.text('4 кр.'), findsOneWidget);
+    expect(find.text('2 кр.'), findsOneWidget);
+    expect(find.text('4${nb}000$nb₽ / \$48'), findsOneWidget);
     expect(find.text('Н/Д'), findsNothing);
-    expect(_total(tester), '6 000 ₽ / \$71');
+    expect(_text(tester, 'price-total'), '6 кр.');
+    expect(_text(tester, 'price-total-money'), '6${nb}000$nb₽ / \$71');
   });
 
   testWidgets('Q05: перевод приборной панели и вывод на неё — Н/Д', (
@@ -53,6 +59,12 @@ void main() {
     await _pickModel(tester, 'Changan Q05');
     expect(find.text('Перевод приборной панели — Н/Д'), findsOneWidget);
     expect(find.text('Н/Д'), findsOneWidget);
-    expect(_total(tester), '4 000 ₽ / \$48');
+    expect(_text(tester, 'price-total'), '4 кр.');
+  });
+
+  testWidgets('на ширине телефона карточка помещается', (tester) async {
+    await _pickModel(tester, 'Changan UNI-V', width: 360);
+    expect(find.byKey(const Key('price-card')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

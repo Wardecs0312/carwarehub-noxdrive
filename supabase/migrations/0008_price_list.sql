@@ -1,9 +1,9 @@
 -- Прайс-лист: пакеты услуг с ценой в рублях и долларах, исключения по моделям.
--- 1 кредит = 1 ₽: баланс мастера и списание считаются в рублях.
---   Комплексный пакет (русификация, голос, системные приложения, удаление китайских приложений):
---     4 000 ₽ / $48, списывается ОДИН раз на VIN за первую услугу пакета, остальные услуги пакета
---     на этот VIN бесплатны.
---   Отдельная активация «Вывод приложений на приборную панель»: 2 000 ₽ / $23.
+-- Списание с баланса мастера в кредитах; рубли и доллары показываются для справки.
+--   Обычный доступ (русификация: перевод системы, приложения, голос, системные приложения,
+--     удаление китайских приложений): 4 кредита (4 000 ₽ / $48), списывается ОДИН раз на VIN
+--     за первую услугу пакета, остальные услуги пакета на этот VIN бесплатны.
+--   Доступ «Вывод приложений на приборную панель»: 2 кредита (2 000 ₽ / $23).
 --   Changan Q05: перевод приборной панели и вывод приложений на приборную панель недоступны.
 -- Скрипт можно запускать повторно.
 
@@ -11,6 +11,7 @@ create table if not exists price_groups (
   code text primary key,
   title text not null,
   description text,
+  price_credits int not null default 0 check (price_credits >= 0),
   price_rub int not null check (price_rub >= 0),
   price_usd int not null check (price_usd >= 0),
   -- состав для карточки цены: [{"title": "...", "na_models": ["q05"]}]
@@ -29,20 +30,22 @@ create policy price_groups_admin on price_groups for all to authenticated
 
 alter table services add column if not exists price_group text references price_groups(code);
 
-insert into price_groups (code, title, description, price_rub, price_usd, items, na_models, sort_order) values
-  ('complex', 'Комплексный пакет',
+alter table price_groups add column if not exists price_credits int not null default 0;
+
+insert into price_groups (code, title, description, price_credits, price_rub, price_usd, items, na_models, sort_order) values
+  ('complex', 'Обычный доступ: русификация',
    'Разблокировка ADB, полный перевод системы, установка приложений, перевод приборной панели, голосовой ассистент',
-   4000, 48,
+   4, 4000, 48,
    '[{"title":"Разблокировка ADB"},{"title":"Полный перевод системы"},{"title":"Установка приложений"},
      {"title":"Перевод приборной панели","na_models":["q05"]},{"title":"Голосовой ассистент"}]'::jsonb,
    '{}', 10),
   ('cluster', 'Вывод приложений на приборную панель',
-   'Отдельная активация',
-   2000, 23,
+   'Отдельный доступ',
+   2, 2000, 23,
    '[{"title":"Вывод приложений на приборную панель"}]'::jsonb,
    '{q05}', 20)
 on conflict (code) do update set
-  title = excluded.title, description = excluded.description,
+  title = excluded.title, description = excluded.description, price_credits = excluded.price_credits,
   price_rub = excluded.price_rub, price_usd = excluded.price_usd,
   items = excluded.items, na_models = excluded.na_models, sort_order = excluded.sort_order;
 
@@ -78,7 +81,7 @@ begin
     repeat := exists (
       select 1 from activations a join services s on s.id = a.service_id
       where a.vin = p_vin and s.price_group = v_group.code and a.status in ('success', 'running'));
-    price := case when repeat then 0 else v_group.price_rub end;
+    price := case when repeat then 0 else v_group.price_credits end;
   else
     repeat := exists (select 1 from activations
                       where vin = p_vin and service_id = p_service_id and status = 'success');

@@ -16,6 +16,7 @@ class PriceCard extends ConsumerWidget {
     final groups = ref.watch(priceGroupsProvider).value ?? const <PriceGroup>[];
     if (groups.isEmpty) return const SizedBox.shrink();
     final available = groups.where((g) => g.availableFor(model.code)).toList();
+    final totalCredits = available.fold<int>(0, (s, g) => s + g.priceCredits);
     final totalRub = available.fold<int>(0, (s, g) => s + g.priceRub);
     final totalUsd = available.fold<int>(0, (s, g) => s + g.priceUsd);
     const muted = TextStyle(color: NoxColors.metalMid, fontSize: 13);
@@ -49,26 +50,60 @@ class PriceCard extends ConsumerWidget {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
-              Text(
-                '${formatRub(totalRub)} / \$$totalUsd',
-                key: const Key('price-total'),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+              const SizedBox(width: 12),
+              _Price(
+                credits: '$totalCredits кр.',
+                money: '${formatRub(totalRub)} / \$$totalUsd',
+                keyPrefix: 'price-total',
+                big: true,
               ),
             ],
           ),
           const SizedBox(height: 4),
           const Text(
-            'Списывается с баланса: 1 кр. = 1 ₽. Повторная услуга на тот же VIN бесплатна.',
+            'Списываются кредиты с баланса мастера. Доступ оплачивается один раз на VIN: повторные услуги на этот VIN бесплатны.',
             style: muted,
           ),
         ],
       ),
     );
   }
+}
+
+/// Цена в кредитах крупно, под ней рубли и доллары для справки.
+class _Price extends StatelessWidget {
+  const _Price({
+    required this.credits,
+    required this.money,
+    this.keyPrefix,
+    this.big = false,
+  });
+  final String credits;
+  final String money;
+  final String? keyPrefix;
+  final bool big;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      Text(
+        credits,
+        key: keyPrefix == null ? null : Key(keyPrefix!),
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: big ? 18 : 15,
+          color: NoxColors.metalLight,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+      Text(
+        money,
+        key: keyPrefix == null ? null : Key('$keyPrefix-money'),
+        style: const TextStyle(fontSize: 12, color: NoxColors.metalMid),
+      ),
+    ],
+  );
 }
 
 class _GroupRow extends StatelessWidget {
@@ -106,13 +141,19 @@ class _GroupRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              ok ? '${formatRub(group.priceRub)} / \$${group.priceUsd}' : 'Н/Д',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: ok ? NoxColors.metalLight : NoxColors.bad,
+            if (ok)
+              _Price(
+                credits: '${group.priceCredits} кр.',
+                money: '${formatRub(group.priceRub)} / \$${group.priceUsd}',
+              )
+            else
+              const Text(
+                'Н/Д',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: NoxColors.bad,
+                ),
               ),
-            ),
           ],
         ),
         if (group.items.length > 1) ...[
