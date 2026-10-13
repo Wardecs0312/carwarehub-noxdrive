@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/env.dart';
+import '../../core/json.dart';
 import '../../data/auth_repository.dart';
 
 /// Мастер в админ-панели.
@@ -25,11 +26,11 @@ class MasterRow {
     final b = j['master_balance'];
     final bal = b is List ? (b.isEmpty ? null : b.first) : b;
     return MasterRow(
-      id: j['id'] as String,
-      name: j['name'] as String,
-      phone: j['phone'] as String?,
-      status: j['status'] as String,
-      credits: (bal?['credits'] as int?) ?? 0,
+      id: str(j['id']),
+      name: str(j['name']),
+      phone: strOrNull(j['phone']),
+      status: str(j['status']),
+      credits: intOr(asMap(bal)['credits']),
     );
   }
 }
@@ -55,15 +56,15 @@ class RefundRow {
   final DateTime createdAt;
 
   factory RefundRow.fromJson(Map<String, dynamic> j) {
-    final a = (j['activations'] as Map?) ?? const {};
+    final a = asMap(j['activations']);
     return RefundRow(
-      id: j['id'] as String,
-      masterName: ((j['masters'] as Map?)?['name'] as String?) ?? '—',
-      reason: (j['reason'] as String?) ?? '',
-      vin: (a['vin'] as String?) ?? '',
-      service: ((a['services'] as Map?)?['title'] as String?) ?? '',
-      credits: (a['credits'] as int?) ?? 0,
-      createdAt: DateTime.parse(j['created_at'] as String),
+      id: str(j['id']),
+      masterName: strOrNull(asMap(j['masters'])['name']) ?? '—',
+      reason: str(j['reason']),
+      vin: str(a['vin']),
+      service: str(asMap(a['services'])['title']),
+      credits: intOr(a['credits']),
+      createdAt: dateOrNow(j['created_at']),
     );
   }
 }
@@ -87,12 +88,12 @@ class StreamSessionRow {
   final DateTime createdAt;
 
   factory StreamSessionRow.fromJson(Map<String, dynamic> j) => StreamSessionRow(
-    id: j['id'] as String,
-    masterId: j['master_id'] as String,
-    masterName: ((j['masters'] as Map?)?['name'] as String?) ?? '—',
-    sources: [for (final s in (j['sources'] as List? ?? const [])) s as String],
-    status: j['status'] as String,
-    createdAt: DateTime.parse(j['created_at'] as String),
+    id: str(j['id']),
+    masterId: str(j['master_id']),
+    masterName: strOrNull(asMap(j['masters'])['name']) ?? '—',
+    sources: [for (final s in (j['sources'] as List? ?? const [])) str(s)],
+    status: str(j['status']),
+    createdAt: dateOrNow(j['created_at']),
   );
 }
 
@@ -132,12 +133,12 @@ class AdminRepository {
         'telegram-auth',
         body: {'action': 'setup_webhook'},
       );
-      return (r.data as Map)['ok'] == true
+      return asMap(r.data)['ok'] == true
           ? 'Telegram-бот подключён'
           : 'Telegram ответил ошибкой';
     } on FunctionException catch (e) {
       final d = e.details;
-      final code = d is Map ? (d['error'] ?? d['description']) : null;
+      final code = strOrNull(asMap(d)['error'] ?? asMap(d)['description']);
       return switch (code) {
         'TELEGRAM_NOT_CONFIGURED' =>
           'В Supabase Secrets нет TELEGRAM_BOT_TOKEN',

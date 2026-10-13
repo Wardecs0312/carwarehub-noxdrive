@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/json.dart';
+
 import '../jobs/job_models.dart';
 import 'adb_client.dart';
 
@@ -77,7 +79,7 @@ class ProcessAdbExecutor implements AdbExecutor {
     if (r.exitCode != 0) {
       throw AdbException('Команда не выполнена: ${r.stderr}'.trim());
     }
-    return (r.stdout as String).trim();
+    return str(r.stdout).trim();
   }
 
   @override

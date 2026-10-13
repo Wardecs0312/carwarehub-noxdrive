@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../core/json.dart';
+
 import 'adb_status.dart';
 
 /// Источник данных об ADB-устройствах. В тестах подменяется заглушкой.
@@ -71,7 +73,7 @@ class ProcessAdbClient implements AdbClient {
       if (result.exitCode != 0) {
         return const AdbStatus(AdbConnection.disconnected);
       }
-      return parseAdbDevices(result.stdout as String);
+      return parseAdbDevices(str(result.stdout));
     } on ProcessException {
       return const AdbStatus(AdbConnection.adbMissing);
     } on TimeoutException {

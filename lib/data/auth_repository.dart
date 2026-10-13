@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/env.dart';
+import '../core/json.dart';
 
 /// Сессия мастера. Без Supabase возвращает null и приложение работает в демо-режиме.
 final sessionProvider = StreamProvider<Session?>((ref) {
@@ -59,29 +60,43 @@ Future<bool> signUp({
 
 /// Вход через Telegram: код и ссылка на бота (Edge Function telegram-auth).
 Future<({String nonce, String link})> telegramStart() async {
-  final r = await Supabase.instance.client.functions.invoke(
-    'telegram-auth',
-    body: {'action': 'start'},
+  final d = await _telegram({'action': 'start'});
+  return (
+    nonce: requireStr(d, 'nonce', 'Вход через Telegram'),
+    link: requireStr(d, 'link', 'Вход через Telegram'),
   );
-  final d = r.data as Map<String, dynamic>;
-  return (nonce: d['nonce'] as String, link: d['link'] as String);
+}
+
+/// Вызов Edge Function telegram-auth с понятными ошибками вместо падения на разборе ответа.
+Future<Map<String, dynamic>> _telegram(Map<String, dynamic> body) async {
+  try {
+    final r = await Supabase.instance.client.functions.invoke(
+      'telegram-auth',
+      body: body,
+    );
+    return asMap(r.data);
+  } on FunctionException catch (e) {
+    final code = str(asMap(e.details)['error']);
+    throw Exception(switch (code) {
+      'TELEGRAM_NOT_CONFIGURED' =>
+        'Вход через Telegram ещё не настроен (нет токена бота в Supabase)',
+      _ when e.status == 404 => 'Вход через Telegram ещё не подключён: функция telegram-auth не опубликована',
+      _ => 'Ошибка входа через Telegram (${code.isEmpty ? e.status : code})',
+    });
+  }
 }
 
 /// Один опрос: false, пока мастер не нажал «Старт» в боте; при подтверждении входит сам и возвращает true.
 /// Бросает исключение, если код устарел.
 Future<bool> telegramPoll(String nonce) async {
-  final r = await Supabase.instance.client.functions.invoke(
-    'telegram-auth',
-    body: {'action': 'poll', 'nonce': nonce},
-  );
-  final d = r.data as Map<String, dynamic>;
-  switch (d['status']) {
+  final d = await _telegram({'action': 'poll', 'nonce': nonce});
+  switch (str(d['status'])) {
     case 'pending':
       return false;
     case 'ok':
       await Supabase.instance.client.auth.verifyOTP(
         type: OtpType.magiclink,
-        tokenHash: d['token_hash'] as String,
+        tokenHash: requireStr(d, 'token_hash', 'Вход через Telegram'),
       );
       return true;
     default:
@@ -100,7 +115,7 @@ final masterStatusProvider = FutureProvider<String?>((ref) async {
       .select('status')
       .eq('id', session.user.id)
       .maybeSingle();
-  return row?['status'] as String?;
+  return strOrNull(row?['status']);
 });
 
 /// Баланс кредитов мастера. null: демо-режим или баланс ещё не создан.
@@ -113,5 +128,5 @@ final balanceProvider = FutureProvider<int?>((ref) async {
       .select('credits')
       .eq('master_id', uid)
       .maybeSingle();
-  return (row?['credits'] as int?) ?? 0;
+  return intOr(row?['credits']);
 });

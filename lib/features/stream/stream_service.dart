@@ -4,6 +4,7 @@ import 'package:livekit_client/livekit_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../adb/hu_mirror.dart';
+import '../../core/json.dart';
 
 /// Доступ к комнате LiveKit, выданный Edge Function `stream-token`.
 class StreamAccess {
@@ -33,14 +34,21 @@ Future<StreamAccess> fetchStreamAccess({String? masterId}) async {
       'stream-token',
       body: {'master_id': ?masterId},
     );
-    final data = r.data as Map<String, dynamic>;
-    return StreamAccess(
-      url: data['url'] as String,
-      token: data['token'] as String,
-    );
+    final data = asMap(r.data);
+    final url = strOrNull(data['url']);
+    final token = strOrNull(data['token']);
+    if (url == null || token == null) {
+      throw StreamException('Сервер трансляций вернул неполный ответ');
+    }
+    return StreamAccess(url: url, token: token);
   } on FunctionException catch (e) {
-    final code = (e.details is Map ? e.details['error'] : null) as String?;
-    throw StreamException(_errors[code] ?? 'Ошибка сервера трансляций: $code');
+    final code = str(asMap(e.details)['error']);
+    throw StreamException(
+      _errors[code] ??
+          (e.status == 404
+              ? 'Сервер трансляций ещё не подключён: функция stream-token не опубликована'
+              : 'Ошибка сервера трансляций: ${code.isEmpty ? e.status : code}'),
+    );
   }
 }
 

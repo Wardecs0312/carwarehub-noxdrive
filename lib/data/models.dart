@@ -1,3 +1,5 @@
+import '../core/json.dart';
+
 /// Модели каталога. Заполняются из таблиц Supabase, а не из кода.
 class CarModel {
   const CarModel({required this.id, required this.code, required this.title});
@@ -6,9 +8,9 @@ class CarModel {
   final String title;
 
   factory CarModel.fromJson(Map<String, dynamic> j) => CarModel(
-    id: j['id'] as int,
-    code: j['code'] as String,
-    title: j['title'] as String,
+    id: intOr(j['id']),
+    code: str(j['code']),
+    title: str(j['title']),
   );
 }
 
@@ -29,11 +31,11 @@ class ServiceItem {
   final bool allowCustomApks;
 
   factory ServiceItem.fromJson(Map<String, dynamic> j) => ServiceItem(
-    id: j['id'] as int,
-    code: j['code'] as String,
-    title: j['title'] as String,
-    priceCredits: (j['price_credits'] as int?) ?? 0,
-    allowCustomApks: (j['allow_custom_apks'] as bool?) ?? false,
+    id: intOr(j['id']),
+    code: str(j['code']),
+    title: str(j['title']),
+    priceCredits: intOr(j['price_credits']),
+    allowCustomApks: boolOr(j['allow_custom_apks']),
   );
 }
 
@@ -55,11 +57,11 @@ class AppRelease {
   final String? releaseNotes;
 
   factory AppRelease.fromJson(Map<String, dynamic> j) => AppRelease(
-    version: j['version'] as String,
-    buildNumber: j['build_number'] as int,
-    isMandatory: (j['is_mandatory'] as bool?) ?? false,
-    downloadPath: j['download_path'] as String,
-    minSupportedVersion: j['min_supported_version'] as String?,
-    releaseNotes: j['release_notes'] as String?,
+    version: str(j['version']),
+    buildNumber: intOr(j['build_number']),
+    isMandatory: boolOr(j['is_mandatory']),
+    downloadPath: str(j['download_path']),
+    minSupportedVersion: strOrNull(j['min_supported_version']),
+    releaseNotes: strOrNull(j['release_notes']),
   );
 }

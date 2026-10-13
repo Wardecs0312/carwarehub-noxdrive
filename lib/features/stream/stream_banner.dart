@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../data/auth_repository.dart';
 import '../../adb/adb_status_checker.dart';
 import '../admin/admin_repository.dart';
+import '../../core/json.dart';
 import 'stream_service.dart';
 
 /// Открытые запросы трансляции текущего мастера (Supabase Realtime, без опроса).
@@ -60,13 +61,13 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
     _busy = true;
     try {
       if (!await _ensureConsent()) {
-        await _setStatus(next['id'] as String, 'ended');
+        await _setStatus(str(next['id']), 'ended');
         return;
       }
       final adb = ref.read(adbStatusProvider).value;
       _publisher.huSerial = adb != null && adb.isReady ? adb.serial : null;
-      await _publisher.start(next['id'] as String, [
-        for (final s in (next['sources'] as List? ?? const [])) s as String,
+      await _publisher.start(str(next['id']), [
+        for (final s in (next['sources'] as List? ?? const [])) str(s),
       ]);
       if (mounted) setState(() => _error = null);
     } catch (e) {

@@ -1,3 +1,5 @@
+import '../core/json.dart';
+
 enum StepType { installApk, runScript, pushFile, shell, uninstall, reboot }
 
 /// Один шаг сценария, как его вернул сервер (`start_job`).
@@ -53,16 +55,16 @@ class JobStep {
     };
     return JobStep(
       type: type,
-      title: (j['title'] as String?) ?? '',
-      storagePath: j['storage_path'] as String?,
+      title: str(j['title']),
+      storagePath: strOrNull(j['storage_path']),
       sizeBytes: (j['size_bytes'] as num?)?.toInt(),
-      encKey: j['enc_key'] as String?,
-      cmd: j['cmd'] as String?,
-      packages: ((j['packages'] as List?) ?? const []).cast<String>(),
-      grantPermissions: (j['grant'] as bool?) ?? false,
-      downgrade: (j['downgrade'] as bool?) ?? false,
-      remotePath: j['remote_path'] as String?,
-      ignoreErrors: (j['ignore_errors'] as bool?) ?? false,
+      encKey: strOrNull(j['enc_key']),
+      cmd: strOrNull(j['cmd']),
+      packages: [for (final p in (j['packages'] as List?) ?? const []) str(p)],
+      grantPermissions: boolOr(j['grant']),
+      downgrade: boolOr(j['downgrade']),
+      remotePath: strOrNull(j['remote_path']),
+      ignoreErrors: boolOr(j['ignore_errors']),
     );
   }
 }
@@ -80,10 +82,10 @@ class JobTicket {
   final List<JobStep> steps;
 
   factory JobTicket.fromJson(Map<String, dynamic> j) => JobTicket(
-    jobId: j['job_id'] as String,
-    price: (j['price'] as num).toInt(),
-    repeat: (j['repeat'] as bool?) ?? false,
-    steps: (j['steps'] as List)
+    jobId: requireStr(j, 'job_id', 'Запуск услуги'),
+    price: intOr(j['price']),
+    repeat: boolOr(j['repeat']),
+    steps: ((j['steps'] as List?) ?? const [])
         .map((e) => JobStep.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList(),
   );
@@ -150,17 +152,17 @@ class PackagePreview {
   final bool repeat;
 
   factory PackagePreview.fromJson(Map<String, dynamic> j) => PackagePreview(
-    price: (j['price'] as num).toInt(),
-    repeat: (j['repeat'] as bool?) ?? false,
+    price: intOr(j['price']),
+    repeat: boolOr(j['repeat']),
     items: [
-      for (final e in (j['items'] as List))
+      for (final e in ((j['items'] as List?) ?? const []))
         if ((e as Map)['type'] != 'reboot')
           _itemTitle(Map<String, dynamic>.from(e)),
     ],
   );
 
   static String _itemTitle(Map<String, dynamic> e) {
-    final title = e['title'] as String?;
+    final title = strOrNull(e['title']);
     if (title != null && title.isNotEmpty) return title;
     return switch (e['type']) {
       'install_apk' => 'Установка приложения',
