@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../data/auth_repository.dart';
+import '../admin/admin_repository.dart';
 
 /// Мастер зарегистрировался, но ещё не одобрен администратором (или заблокирован).
 class AccountStatusScreen extends ConsumerWidget {
@@ -54,7 +55,9 @@ class AccountStatusScreen extends ConsumerWidget {
                   children: [
                     if (pending)
                       FilledButton(
-                        onPressed: () => ref.invalidate(masterStatusProvider),
+                        onPressed: () => ref
+                          ..invalidate(masterStatusProvider)
+                          ..invalidate(isAdminProvider),
                         child: const Text('Проверить'),
                       ),
                     // «Назад» ведёт на экран входа (выход из аккаунта).

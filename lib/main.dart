@@ -6,6 +6,7 @@ import 'app/env.dart';
 import 'app/theme.dart';
 import 'data/auth_repository.dart';
 import 'data/catalog_repository.dart';
+import 'features/admin/admin_repository.dart';
 import 'features/auth/account_status_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
@@ -53,7 +54,9 @@ class _AppGate extends ConsumerWidget {
       }
       if (session.value == null) return const LoginScreen();
       final status = ref.watch(masterStatusProvider).value;
-      if (status == 'pending' || status == 'blocked') {
+      // Администратор входит сразу, даже если его строка мастера ещё не одобрена.
+      final isAdmin = ref.watch(isAdminProvider).value ?? false;
+      if (!isAdmin && (status == 'pending' || status == 'blocked')) {
         return AccountStatusScreen(status: status!);
       }
     }
