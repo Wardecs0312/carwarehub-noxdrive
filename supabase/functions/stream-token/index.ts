@@ -20,10 +20,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   // Основные имена секретов и частые варианты (пробелы по краям значений убираются).
+  // Имена сравниваются без невидимых символов и регистра: при копировании имени из чата
+  // в него часто попадает, например, U+2060, и тогда точное имя не находится.
+  const clean = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
+  const all = Deno.env.toObject();
   const env = (...names: string[]) => {
     for (const n of names) {
-      const v = Deno.env.get(n)?.trim();
-      if (v) return v;
+      for (const [k, v] of Object.entries(all)) {
+        const val = v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
+        if (clean(k) === clean(n) && val) return val;
+      }
     }
     return undefined;
   };
