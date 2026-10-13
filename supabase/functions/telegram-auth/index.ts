@@ -89,8 +89,26 @@ async function isAdminTelegram(telegramId: number): Promise<boolean> {
   return (await adminChats()).includes(Number(telegramId));
 }
 
+// Примерный регион заявителя по IP-адресу его устройства (страна, область, город).
+// Определяется сервисом ipwho.is; при VPN показывает регион VPN-сервера.
+async function regionOf(req: Request): Promise<string | null> {
+  const ip = (req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "")
+    .split(",")[0].trim();
+  if (!ip) return null;
+  try {
+    const r = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}?lang=ru`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    const g = await r.json();
+    if (!g?.success) return null;
+    return [g.country, g.region, g.city].filter(Boolean).join(", ") || null;
+  } catch {
+    return null;
+  }
+}
+
 // Сообщение админам о новом мастере с кнопками.
-async function notifyAdmins(masterId: string) {
+async function notifyAdmins(masterId: string, region: string | null) {
   const { data: m } = await admin.from("masters")
     .select("id, name, phone, email, telegram_username, created_via, status")
     .eq("id", masterId).maybeSingle();
@@ -98,9 +116,10 @@ async function notifyAdmins(masterId: string) {
   const lines = [
     "Новая заявка на регистрацию мастера",
     `Имя: ${m.name}`,
+    m.telegram_username ? `Telegram: @${m.telegram_username}` : null,
     m.phone ? `Телефон: ${m.phone}` : null,
     m.email ? `Почта: ${m.email}` : null,
-    m.telegram_username ? `Telegram: @${m.telegram_username}` : null,
+    `Регион: ${region ?? "не удалось определить"}`,
     `Через: ${m.created_via === "telegram" ? "Telegram" : "почту"}`,
   ].filter(Boolean).join("\n");
   for (const chat of await adminChats()) {
@@ -184,7 +203,7 @@ async function onTelegramUpdate(update: any) {
   );
 }
 
-async function poll(nonce: string) {
+async function poll(nonce: string, req: Request) {
   const { data: row } = await admin.from("telegram_logins").select("*").eq("nonce", nonce).maybeSingle();
   if (!row || row.consumed_at) return json({ status: "invalid" });
   if (!row.confirmed_at) return json({ status: fresh(row.created_at) ? "pending" : "expired" });
@@ -204,7 +223,7 @@ async function poll(nonce: string) {
       },
     });
     if (error && !String(error.message).includes("already")) return json({ status: "error" }, 500);
-    if (created?.user) await notifyAdmins(created.user.id);
+    if (created?.user) await notifyAdmins(created.user.id, await regionOf(req));
   }
   const { data: link, error } = await admin.auth.admin.generateLink({ type: "magiclink", email });
   if (error) return json({ status: "error" }, 500);
@@ -214,11 +233,11 @@ async function poll(nonce: string) {
 
 // Регистрация по почте: программа сообщает о новой заявке, бот пишет админам.
 // Без спама: только для мастера в ожидании, созданного не раньше 10 минут назад.
-async function notifySignup(email: unknown) {
+async function notifySignup(email: unknown, req: Request) {
   if (typeof email !== "string" || !email.includes("@")) return json({ error: "BAD_REQUEST" }, 400);
   const { data: m } = await admin.from("masters")
     .select("id, status, created_at").ilike("email", email.trim()).maybeSingle();
-  if (m && m.status === "pending" && fresh(m.created_at)) await notifyAdmins(m.id);
+  if (m && m.status === "pending" && fresh(m.created_at)) await notifyAdmins(m.id, await regionOf(req));
   return json({ ok: true });
 }
 
@@ -245,8 +264,8 @@ Deno.serve(async (req) => {
     if (error) return json({ error: "DB_ERROR" }, 500);
     return json({ nonce, link: `https://t.me/${botUsername}?start=${nonce}` });
   }
-  if (body.action === "poll" && typeof body.nonce === "string") return poll(body.nonce);
-  if (body.action === "notify_signup") return notifySignup(body.email);
+  if (body.action === "poll" && typeof body.nonce === "string") return poll(body.nonce, req);
+  if (body.action === "notify_signup") return notifySignup(body.email, req);
   if (body.action === "setup_webhook") return setupWebhook(req);
   return json({ error: "BAD_REQUEST" }, 400);
 });
