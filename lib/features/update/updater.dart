@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/models.dart';
@@ -15,9 +16,13 @@ import '../../data/models.dart';
 ///    запускает новую версию и закрывается. Старые файлы удаляются при следующем запуске.
 ///    Журнал: %TEMP%\nox_update.log.
 ///
-/// На Android и в PWA используется [openUpdate] из update_ui.dart (установщик/браузер).
+/// Android: APK скачивается внутри приложения с прогрессом, сверяется SHA-256 и открывается
+/// системный установщик ([installApk]); подтвердить установку Android всегда просит сам.
+/// PWA обновляется сама (service worker).
 class Updater {
-  static bool get supported => !kIsWeb && Platform.isWindows;
+  static bool get supported => !kIsWeb && (Platform.isWindows || isAndroid);
+  static bool get isAndroid => !kIsWeb && Platform.isAndroid;
+  static bool get _isWindows => !kIsWeb && Platform.isWindows;
 
   /// Папка программы (там лежат exe, data\, adb\, scrcpy\).
   static Directory get installDir => File(Platform.resolvedExecutable).parent;
@@ -32,7 +37,7 @@ class Updater {
     void Function(double progress) onProgress,
   ) async {
     // Запуск прямо из zip (Проводник распаковывает во временную папку): обновлять там бессмысленно.
-    if (installDir.path.startsWith(Directory.systemTemp.path)) {
+    if (_isWindows && installDir.path.startsWith(Directory.systemTemp.path)) {
       throw UpdateException(
         'Программа запущена прямо из архива. Распакуйте архив в обычную папку и запускайте оттуда',
       );
@@ -44,7 +49,9 @@ class Updater {
     final dir = _work(r);
     if (await dir.exists()) await dir.delete(recursive: true);
     await dir.create(recursive: true);
-    final file = File('${dir.path}${Platform.pathSeparator}update.zip');
+    final file = File(
+      '${dir.path}${Platform.pathSeparator}${isAndroid ? 'update.apk' : 'update.zip'}',
+    );
 
     final client = HttpClient();
     try {
@@ -67,6 +74,18 @@ class Updater {
       client.close();
     }
     return file;
+  }
+
+  /// Android: открывает системный установщик для скачанного APK (поверх текущей версии,
+  /// подпись та же). Разрешение «Установка из этого источника» Android спросит один раз.
+  static Future<void> installApk(File apk) async {
+    final r = await OpenFilex.open(
+      apk.path,
+      type: 'application/vnd.android.package-archive',
+    );
+    if (r.type != ResultType.done) {
+      throw UpdateException('Не удалось открыть установщик: ${r.message}');
+    }
   }
 
   /// Проверка контрольной суммы. Без суммы в базе обновление не ставится.
@@ -149,7 +168,7 @@ class Updater {
 
   /// Удаляет файлы *.nox-old, оставшиеся от прошлого обновления, и временные папки загрузки.
   static Future<void> cleanupOldFiles() async {
-    if (!supported) return;
+    if (!_isWindows) return;
     try {
       await for (final e in installDir.list(recursive: true)) {
         if (e is File && e.path.endsWith(oldSuffix)) {

@@ -110,6 +110,14 @@ Future<void> main(List<String> argv) async {
     ),
     {'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
   );
+  // Старые версии этой платформы выключаются только после успешной загрузки новой:
+  // если связь оборвётся раньше, у мастеров остаётся рабочая предыдущая версия.
+  await send(
+    'PATCH',
+    '/rest/v1/app_releases?platform=eq.$platform&build_number=lt.$build',
+    utf8.encode(jsonEncode({'is_active': false})),
+    {'Content-Type': 'application/json', 'Prefer': 'return=minimal'},
+  );
   http.close();
   stdout.writeln(
     'Готово: мастера увидят предложение обновиться при следующем запуске.',

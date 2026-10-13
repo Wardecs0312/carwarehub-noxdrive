@@ -82,6 +82,12 @@ class _UpdateDialogState extends State<UpdateDialog> {
       });
       if (mounted) setState(() => _stage = _Stage.installing);
       await Updater.verify(zip, r.sha256);
+      if (Updater.isAndroid) {
+        // Android ставит APK только через системное окно «Установить».
+        await Updater.installApk(zip);
+        if (mounted) Navigator.pop(context);
+        return;
+      }
       final dir = await Updater.extract(zip, r);
       await Updater.applyAndRestart(dir);
     } catch (e) {
@@ -129,9 +135,13 @@ class _UpdateDialogState extends State<UpdateDialog> {
               const SizedBox(height: 12),
               LinearProgressIndicator(value: _progress > 0 ? _progress : null),
             ],
-            _Stage.installing => const [
-              Text('Установка. Программа закроется и откроется заново.'),
-              SizedBox(height: 12),
+            _Stage.installing => [
+              Text(
+                Updater.isAndroid
+                    ? 'Проверка файла. Затем Android покажет окно «Установить» — нажмите его.'
+                    : 'Установка. Программа закроется и откроется заново.',
+              ),
+              const SizedBox(height: 12),
               LinearProgressIndicator(),
             ],
             _Stage.failed => [
