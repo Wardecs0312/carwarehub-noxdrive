@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
   const clean = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
   const all = Deno.env.toObject();
   const env = (...names: string[]) => {
-    const value = (v?: string) => v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim() || undefined;
+    const value = (v?: string) => v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim() ?? "";
     // Сначала точное имя: если рядом остался старый секрет с невидимым символом в имени,
     // он не должен перекрыть новый, правильно названный.
     for (const n of names) {
@@ -43,13 +43,13 @@ Deno.serve(async (req) => {
   // Из ключа и секрета убираются только пробелы, кавычки и невидимые символы из буфера обмена;
   // остальные символы (в секрете бывают «/», «+», «=») сохраняются как есть.
   const tidy = (s?: string) =>
-    s?.replace(/[\s"'`\u200B-\u200D\u2060\uFEFF]/g, "") || undefined;
+    s?.replace(/[\s"'`\u200B-\u200D\u2060\uFEFF]/g, "");
   const lkKey = tidy(env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key"));
   const lkSecret = tidy(env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret"));
   lkUrl = lkUrl?.replace(/["'\s]/g, "");
   if (lkUrl?.startsWith("https://")) lkUrl = "wss://" + lkUrl.slice("https://".length);
-  if (!lkUrl || !lkKey || !lkSecret) {
-    // Только имена недостающих секретов, без значений.
+  // Только имена недостающих секретов, без значений.
+  const notConfigured = () => {
     const missing = [
       !lkUrl && "LIVEKIT_URL",
       !lkKey && "LIVEKIT_API_KEY",
@@ -57,7 +57,10 @@ Deno.serve(async (req) => {
     ].filter(Boolean);
     const seen = Object.keys(Deno.env.toObject()).filter((k) => /livekit/i.test(k));
     return json({ error: "STREAMING_NOT_CONFIGURED", missing, seen }, 503);
-  }
+  };
+  if (!lkUrl) return notConfigured();
+  if (!lkKey) return notConfigured();
+  if (!lkSecret) return notConfigured();
 
   const body = await req.json().catch(() => ({}));
 
