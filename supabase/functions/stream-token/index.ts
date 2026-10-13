@@ -25,10 +25,16 @@ Deno.serve(async (req) => {
   const clean = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
   const all = Deno.env.toObject();
   const env = (...names: string[]) => {
+    const value = (v?: string) => v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim() || undefined;
+    // Сначала точное имя: если рядом остался старый секрет с невидимым символом в имени,
+    // он не должен перекрыть новый, правильно названный.
+    for (const n of names) {
+      const v = value(all[n]);
+      if (v) return v;
+    }
     for (const n of names) {
       for (const [k, v] of Object.entries(all)) {
-        const val = v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
-        if (clean(k) === clean(n) && val) return val;
+        if (clean(k) === clean(n) && value(v)) return value(v);
       }
     }
     return undefined;
@@ -84,6 +90,8 @@ Deno.serve(async (req) => {
       urlScheme: lkUrl.split("://")[0],
       key: shape(lkKey),
       secret: { length: lkSecret.length, nonAscii: /[^\x21-\x7E]/.test(lkSecret) },
+      // Имена всех секретов LiveKit (без значений): видно, остались ли старые дубли с невидимыми символами.
+      names: Object.keys(all).filter((k) => /livekit/i.test(k)).map((k) => k.replace(/[^\x20-\x7E]/g, (ch) => `<U+${ch.charCodeAt(0).toString(16).toUpperCase()}>`)),
     });
   }
 
