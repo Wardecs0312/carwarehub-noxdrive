@@ -25,20 +25,31 @@ Deno.serve(async (req) => {
   const clean = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
   const all = Deno.env.toObject();
   const env = (...names: string[]) => {
+    const value = (v?: string) => v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim() ?? "";
+    // Сначала точное имя: если рядом остался старый секрет с невидимым символом в имени,
+    // он не должен перекрыть новый, правильно названный.
+    for (const n of names) {
+      const v = value(all[n]);
+      if (v) return v;
+    }
     for (const n of names) {
       for (const [k, v] of Object.entries(all)) {
-        const val = v?.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
-        if (clean(k) === clean(n) && val) return val;
+        if (clean(k) === clean(n) && value(v)) return value(v);
       }
     }
     return undefined;
   };
-  let lkUrl = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
-  const lkKey = env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key");
-  const lkSecret = env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret");
+  let lkUrl: string | undefined = env("LIVEKIT_URL", "LIVEKIT_WS_URL", "LIVEKIT_HOST", "LIVEKIT_SERVER_URL", "livekit_url");
+  // Из ключа и секрета убираются только пробелы, кавычки и невидимые символы из буфера обмена;
+  // остальные символы (в секрете бывают «/», «+», «=») сохраняются как есть.
+  const tidy = (s?: string) =>
+    s?.replace(/[\s"'`\u200B-\u200D\u2060\uFEFF]/g, "");
+  const lkKey = tidy(env("LIVEKIT_API_KEY", "LIVEKIT_KEY", "livekit_api_key"));
+  const lkSecret = tidy(env("LIVEKIT_API_SECRET", "LIVEKIT_SECRET", "livekit_api_secret"));
+  lkUrl = lkUrl?.replace(/["'\s]/g, "");
   if (lkUrl?.startsWith("https://")) lkUrl = "wss://" + lkUrl.slice("https://".length);
-  if (!lkUrl || !lkKey || !lkSecret) {
-    // Только имена недостающих секретов, без значений.
+  // Только имена недостающих секретов, без значений.
+  const notConfigured = () => {
     const missing = [
       !lkUrl && "LIVEKIT_URL",
       !lkKey && "LIVEKIT_API_KEY",
@@ -46,6 +57,45 @@ Deno.serve(async (req) => {
     ].filter(Boolean);
     const seen = Object.keys(Deno.env.toObject()).filter((k) => /livekit/i.test(k));
     return json({ error: "STREAMING_NOT_CONFIGURED", missing, seen }, 503);
+  };
+  if (!lkUrl) return notConfigured();
+  if (!lkKey) return notConfigured();
+  if (!lkSecret) return notConfigured();
+
+  const body = await req.json().catch(() => ({}));
+
+  // Самопроверка настроек (без входа): секреты не раскрываются, только их форма и ответ LiveKit.
+  if (body.action === "check") {
+    const httpUrl = lkUrl.replace(/^wss:\/\//, "https://");
+    // Прямой запрос к API LiveKit (ListRooms) с токеном, подписанным этими ключами:
+    // 200 — ключи верны, 401 — LiveKit не принимает ключ или секрет.
+    let livekit = "ok";
+    try {
+      const probe = new AccessToken(lkKey, lkSecret, { identity: "nox-check", ttl: "5m" });
+      probe.addGrant({ roomList: true });
+      const r = await fetch(`${httpUrl.replace(/\/$/, "")}/twirp/livekit.RoomService/ListRooms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await probe.toJwt()}` },
+        body: "{}",
+      });
+      if (!r.ok) livekit = `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`;
+    } catch (e) {
+      livekit = String((e as Error)?.message ?? e).slice(0, 200);
+    }
+    const shape = (s: string) => ({
+      length: s.length,
+      start: s.slice(0, 3),
+      nonAscii: /[^\x21-\x7E]/.test(s),
+    });
+    return json({
+      livekit,
+      url: lkUrl.replace(/^wss:\/\//, "").split("/")[0],
+      urlScheme: lkUrl.split("://")[0],
+      key: shape(lkKey),
+      secret: { length: lkSecret.length, nonAscii: /[^\x21-\x7E]/.test(lkSecret) },
+      // Имена всех секретов LiveKit (без значений): видно, остались ли старые дубли с невидимыми символами.
+      names: Object.keys(all).filter((k) => /livekit/i.test(k)).map((k) => k.replace(/[^\x20-\x7E]/g, (ch) => `<U+${ch.charCodeAt(0).toString(16).toUpperCase()}>`)),
+    });
   }
 
   // Клиент от имени вызывающего пользователя: RLS и nox_is_admin() работают как в приложении.
@@ -54,8 +104,6 @@ Deno.serve(async (req) => {
   });
   const { data: { user } } = await db.auth.getUser();
   if (!user) return json({ error: "UNAUTHORIZED" }, 401);
-
-  const body = await req.json().catch(() => ({}));
   const { data: isAdmin } = await db.rpc("nox_is_admin");
 
   let room: string;
