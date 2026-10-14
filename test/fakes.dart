@@ -50,6 +50,7 @@ class FakeBackend implements JobBackend {
   final List<int> encrypted;
   final finished = <bool>[];
   bool refundRequested = false;
+  int refundCalls = 0;
 
   @override
   Future<JobTicket> startJob({
@@ -80,8 +81,10 @@ class FakeBackend implements JobBackend {
   }) async => finished.add(success);
 
   @override
-  Future<void> requestRefund(String jobId, String reason) async =>
-      refundRequested = true;
+  Future<void> requestRefund(String jobId, String reason) async {
+    refundCalls++;
+    refundRequested = true;
+  }
 
   @override
   Stream<List<int>> openPayload(String storagePath) async* {

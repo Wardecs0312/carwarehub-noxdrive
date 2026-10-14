@@ -1,5 +1,5 @@
 
--- Все миграции одним файлом для вставки в SQL Editor Supabase (собрано из supabase/migrations/0001-0004).
+-- Все миграции одним файлом для вставки в SQL Editor Supabase (собрано из всех файлов supabase/migrations, по порядку).
 -- Выполнять один раз. Если в проекте уже есть объекты с такими же именами,
 -- скрипт сразу остановится со списком совпадений и ничего не создаст.
 
@@ -567,4 +567,471 @@ begin
       where not coalesce((e.step->>'hidden')::boolean, false)
     ), '[]'::jsonb)
   );
+end $$;
+
+-- ===== supabase/migrations/0005_streaming.sql =====
+-- Трансляции для администратора (docs/STREAMING.md): экран ноутбука мастера, экран ГУ, камера.
+-- Видео идёт через LiveKit; здесь только запросы, статусы и журнал.
+
+-- Базы, поставленные до переименования is_admin -> nox_is_admin, получают новое имя
+-- (на свежей базе функция уже есть и просто перезаписывается тем же телом).
+create or replace function nox_is_admin() returns boolean language sql stable security definer
+set search_path = public as
+$$ select exists (select 1 from admins where user_id = auth.uid()) $$;
+
+-- Согласие мастера на трансляции (галочка при первом входе).
+alter table masters add column if not exists stream_consent_at timestamptz;
+
+create table if not exists stream_sessions (
+  id uuid primary key default gen_random_uuid(),
+  master_id uuid not null references masters on delete cascade,
+  requested_by uuid not null references auth.users,
+  sources text[] not null check (sources <@ array['screen-laptop','screen-hu','camera']::text[] and cardinality(sources) > 0),
+  status text not null default 'requested' check (status in ('requested','live','ended')),
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  ended_at timestamptz
+);
+create index if not exists stream_sessions_open on stream_sessions (master_id) where status <> 'ended';
+
+alter table stream_sessions enable row level security;
+
+-- Админ: всё. Мастер: видит свои запросы (чтобы показать плашку), статус меняет только через функцию ниже.
+drop policy if exists stream_admin on stream_sessions;
+drop policy if exists stream_master_read on stream_sessions;
+create policy stream_admin on stream_sessions for all to authenticated
+  using (nox_is_admin()) with check (nox_is_admin());
+create policy stream_master_read on stream_sessions for select to authenticated
+  using (master_id = auth.uid());
+
+-- Мастер меняет статус только через эту функцию: live (начал) или ended (остановил сам).
+create or replace function master_stream_status(p_id uuid, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_status not in ('live','ended') then raise exception 'BAD_STATUS'; end if;
+  update stream_sessions
+     set status = p_status,
+         started_at = case when p_status = 'live' then coalesce(started_at, now()) else started_at end,
+         ended_at = case when p_status = 'ended' then now() else ended_at end
+   where id = p_id and master_id = auth.uid() and status <> 'ended';
+  if not found then raise exception 'NOT_FOUND'; end if;
+end $$;
+
+-- Согласие мастера (один раз; дальше трансляции идут с плашкой без повторного вопроса).
+create or replace function master_stream_consent() returns void
+language sql security definer set search_path = public as $$
+  update masters set stream_consent_at = coalesce(stream_consent_at, now()) where id = auth.uid();
+$$;
+
+-- Запросы приходят в приложение мастера мгновенно (Supabase Realtime).
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and tablename = 'stream_sessions') then
+    alter publication supabase_realtime add table stream_sessions;
+  end if;
+end $$;
+
+-- ===== supabase/migrations/0006_registration.sql =====
+-- Самостоятельная регистрация мастеров: через почту и через Telegram.
+-- Новый мастер получает статус pending и работает только после одобрения админом.
+
+alter table masters drop constraint if exists masters_status_check;
+alter table masters add constraint masters_status_check
+  check (status in ('pending','active','blocked'));
+alter table masters add column if not exists email text;
+alter table masters add column if not exists telegram_id bigint unique;
+alter table masters add column if not exists telegram_username text;
+alter table masters add column if not exists created_via text not null default 'admin'
+  check (created_via in ('admin','email','telegram'));
+
+-- Новый пользователь Supabase Auth -> строка мастера (pending) и нулевой баланс.
+-- Данные регистрации приходят в raw_user_meta_data: name, phone, telegram_id, telegram_username, via.
+create or replace function on_auth_user_created() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare m jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+begin
+  insert into masters (id, name, phone, status, email, telegram_id, telegram_username, created_via)
+  values (
+    new.id,
+    coalesce(nullif(trim(m->>'name'), ''), split_part(new.email, '@', 1)),
+    nullif(trim(m->>'phone'), ''),
+    'pending',
+    case when m->>'via' = 'telegram' then null else new.email end,
+    (m->>'telegram_id')::bigint,
+    m->>'telegram_username',
+    case when m->>'via' in ('email','telegram') then m->>'via' else 'admin' end
+  )
+  on conflict (id) do nothing;
+  insert into master_balance (master_id) values (new.id) on conflict do nothing;
+  return new;
+end $$;
+
+drop trigger if exists auth_user_created on auth.users;
+create trigger auth_user_created after insert on auth.users
+  for each row execute function on_auth_user_created();
+
+-- Одобрение / блокировка мастера админом.
+create or replace function admin_set_master_status(p_master uuid, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
+  if p_status not in ('pending','active','blocked') then raise exception 'BAD_STATUS'; end if;
+  update masters set status = p_status where id = p_master;
+  if not found then raise exception 'NOT_FOUND'; end if;
+end $$;
+
+-- Вход через Telegram: одноразовый код, который бот подтверждает по /start <код>.
+-- Доступ только у Edge Function (service_role); клиентам таблица закрыта.
+create table if not exists telegram_logins (
+  nonce text primary key,
+  created_at timestamptz not null default now(),
+  telegram_id bigint,
+  telegram_username text,
+  telegram_name text,
+  confirmed_at timestamptz,
+  consumed_at timestamptz
+);
+alter table telegram_logins enable row level security;
+
+-- ===== supabase/migrations/0007_owner_admin.sql =====
+-- Владелец всегда администратор: почта wardecsfly@gmail.com и Telegram 8106761823.
+-- 1) колонка masters.role ('master' | 'admin');
+-- 2) nox_is_admin() = запись в admins ИЛИ masters.role = 'admin';
+-- 3) при создании аккаунта владельца (почта или Telegram) он сразу админ и одобрен (status = 'active').
+-- Статус «одобрен» в этой базе называется 'active'. Скрипт можно запускать повторно.
+
+alter table masters add column if not exists role text not null default 'master';
+alter table masters drop constraint if exists masters_role_check;
+alter table masters add constraint masters_role_check check (role in ('master','admin'));
+
+create or replace function is_owner_identity(p_email text, p_telegram_id bigint) returns boolean
+language sql immutable as $$
+  select lower(coalesce(p_email, '')) = 'wardecsfly@gmail.com'
+      or coalesce(p_telegram_id, 0) = 8106761823
+$$;
+
+create or replace function nox_is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from admins where user_id = auth.uid())
+      or exists (select 1 from masters where id = auth.uid() and role = 'admin')
+$$;
+
+-- Уже существующие аккаунты владельца.
+update masters m set role = 'admin', status = 'active'
+  from auth.users u
+ where u.id = m.id and is_owner_identity(u.email, m.telegram_id);
+insert into admins (user_id)
+select m.id from masters m join auth.users u on u.id = m.id
+ where is_owner_identity(u.email, m.telegram_id)
+on conflict do nothing;
+
+-- Новые аккаунты: владелец сразу админ и одобрен, остальные — мастер в ожидании.
+create or replace function on_auth_user_created() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  m jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  tg bigint := nullif(m->>'telegram_id', '')::bigint;
+  owner boolean := is_owner_identity(new.email, tg);
+begin
+  insert into masters (id, name, phone, status, role, email, telegram_id, telegram_username, created_via)
+  values (
+    new.id,
+    coalesce(nullif(trim(m->>'name'), ''), split_part(new.email, '@', 1)),
+    nullif(trim(m->>'phone'), ''),
+    case when owner then 'active' else 'pending' end,
+    case when owner then 'admin' else 'master' end,
+    case when m->>'via' = 'telegram' then null else new.email end,
+    tg,
+    m->>'telegram_username',
+    case when m->>'via' in ('email','telegram') then m->>'via' else 'admin' end
+  )
+  on conflict (id) do nothing;
+  insert into master_balance (master_id) values (new.id) on conflict do nothing;
+  if owner then
+    insert into admins (user_id) values (new.id) on conflict do nothing;
+  end if;
+  return new;
+end $$;
+
+-- Владельца нельзя случайно заблокировать или разжаловать из админ-панели.
+create or replace function admin_set_master_status(p_master uuid, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not nox_is_admin() then raise exception 'FORBIDDEN'; end if;
+  if p_status not in ('pending','active','blocked') then raise exception 'BAD_STATUS'; end if;
+  if exists (select 1 from masters where id = p_master and role = 'admin') and p_status <> 'active' then
+    raise exception 'OWNER_PROTECTED';
+  end if;
+  update masters set status = p_status where id = p_master;
+  if not found then raise exception 'NOT_FOUND'; end if;
+end $$;
+
+-- ===== supabase/migrations/0008_price_list.sql =====
+-- Прайс-лист: пакеты услуг с ценой в рублях и долларах, исключения по моделям.
+-- Списание с баланса мастера в кредитах; рубли и доллары показываются для справки.
+--   Обычный доступ (русификация: перевод системы, приложения, голос, системные приложения,
+--     удаление китайских приложений): 4 кредита (4 000 ₽ / $48), списывается ОДИН раз на VIN
+--     за первую услугу пакета, остальные услуги пакета на этот VIN бесплатны.
+--   Доступ «Вывод приложений на приборную панель»: 2 кредита (2 000 ₽ / $23).
+--   Changan Q05: перевод приборной панели и вывод приложений на приборную панель недоступны.
+-- Скрипт можно запускать повторно.
+
+create table if not exists price_groups (
+  code text primary key,
+  title text not null,
+  description text,
+  price_credits int not null default 0 check (price_credits >= 0),
+  price_rub int not null check (price_rub >= 0),
+  price_usd int not null check (price_usd >= 0),
+  -- состав для карточки цены: [{"title": "...", "na_models": ["q05"]}]
+  items jsonb not null default '[]'::jsonb,
+  -- модели, где вся группа недоступна
+  na_models text[] not null default '{}',
+  sort_order int not null default 100,
+  is_active boolean not null default true
+);
+alter table price_groups enable row level security;
+drop policy if exists price_groups_read on price_groups;
+create policy price_groups_read on price_groups for select to authenticated using (is_active);
+drop policy if exists price_groups_admin on price_groups;
+create policy price_groups_admin on price_groups for all to authenticated
+  using (nox_is_admin()) with check (nox_is_admin());
+
+alter table services add column if not exists price_group text references price_groups(code);
+
+alter table price_groups add column if not exists price_credits int not null default 0;
+
+insert into price_groups (code, title, description, price_credits, price_rub, price_usd, items, na_models, sort_order) values
+  ('complex', 'Обычный доступ: русификация',
+   'Разблокировка ADB, полный перевод системы, установка приложений, перевод приборной панели, голосовой ассистент',
+   4, 4000, 48,
+   '[{"title":"Разблокировка ADB"},{"title":"Полный перевод системы"},{"title":"Установка приложений"},
+     {"title":"Перевод приборной панели","na_models":["q05"]},{"title":"Голосовой ассистент"}]'::jsonb,
+   '{}', 10),
+  ('cluster', 'Вывод приложений на приборную панель',
+   'Отдельный доступ',
+   2, 2000, 23,
+   '[{"title":"Вывод приложений на приборную панель"}]'::jsonb,
+   '{q05}', 20)
+on conflict (code) do update set
+  title = excluded.title, description = excluded.description, price_credits = excluded.price_credits,
+  price_rub = excluded.price_rub, price_usd = excluded.price_usd,
+  items = excluded.items, na_models = excluded.na_models, sort_order = excluded.sort_order;
+
+update services set price_group = 'complex' where code in ('russify', 'voice', 'sysapps', 'debloat');
+update services set price_group = 'cluster' where code = 'cluster';
+update services set price_group = null, price_credits = 0 where code = 'reboot';
+
+-- Q05: услуга вывода на приборную панель скрыта для этой модели.
+update model_services ms set is_active = false
+  from car_models m, services s
+ where ms.model_id = m.id and ms.service_id = s.id and m.code = 'q05' and s.code = 'cluster';
+
+-- Цена услуги для VIN и модели: цена группы (один раз на VIN за всю группу) или собственная цена услуги.
+create or replace function service_charge(p_vin text, p_service_id int, p_model_id int)
+returns table (price int, repeat boolean)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_own int;
+  v_group price_groups;
+  v_model text;
+begin
+  select coalesce(ms.price_override, s.price_credits) into v_own
+  from model_services ms join services s on s.id = ms.service_id
+  where ms.model_id = p_model_id and ms.service_id = p_service_id and ms.is_active and s.is_active;
+  if v_own is null then raise exception 'SERVICE_UNAVAILABLE'; end if;
+
+  select g.* into v_group from services s join price_groups g on g.code = s.price_group and g.is_active
+  where s.id = p_service_id;
+  select code into v_model from car_models where id = p_model_id;
+
+  if v_group.code is not null then
+    if v_model = any (v_group.na_models) then raise exception 'SERVICE_UNAVAILABLE'; end if;
+    repeat := exists (
+      select 1 from activations a join services s on s.id = a.service_id
+      where a.vin = p_vin and s.price_group = v_group.code and a.status in ('success', 'running'));
+    price := case when repeat then 0 else v_group.price_credits end;
+  else
+    repeat := exists (select 1 from activations
+                      where vin = p_vin and service_id = p_service_id and status = 'success');
+    price := case when repeat then 0 else v_own end;
+  end if;
+  return next;
+end $$;
+revoke all on function service_charge from public;
+
+create or replace function start_job(
+  p_vin text, p_service_id int, p_model_id int, p_app_version text, p_device jsonb
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  v_vin text := normalize_vin(p_vin);
+  v_price int;
+  v_scenario scenarios;
+  v_job uuid;
+  v_repeat boolean;
+  v_balance int;
+  v_steps jsonb;
+begin
+  if uid is null then raise exception 'AUTH_REQUIRED'; end if;
+  if not exists (select 1 from masters where id = uid and status = 'active') then
+    raise exception 'MASTER_BLOCKED';
+  end if;
+  if v_vin !~ '^[A-HJ-NPR-Z0-9]{17}$' then raise exception 'VIN_INVALID'; end if;
+
+  select c.price, c.repeat into v_price, v_repeat from service_charge(v_vin, p_service_id, p_model_id) c;
+
+  select sc.* into v_scenario
+  from scenarios sc join firmwares f on f.id = sc.firmware_id
+  where sc.service_id = p_service_id and f.model_id = p_model_id
+    and sc.is_active and f.is_active
+    and coalesce(p_device->>'build', '') like f.version_pattern
+  order by sc.version desc limit 1;
+  if v_scenario.id is null then raise exception 'SCENARIO_NOT_FOUND'; end if;
+
+  insert into master_balance (master_id) values (uid) on conflict do nothing;
+  select credits into v_balance from master_balance where master_id = uid for update;
+  if v_balance < v_price then raise exception 'INSUFFICIENT_BALANCE'; end if;
+
+  insert into vehicles (vin, model_id, firmware_seen, first_seen_by)
+  values (v_vin, p_model_id, p_device->>'build', uid) on conflict (vin) do nothing;
+
+  insert into activations (master_id, vin, service_id, scenario_id, credits, app_version, device_info)
+  values (uid, v_vin, p_service_id, v_scenario.id, v_price, p_app_version, p_device)
+  returning id into v_job;
+
+  if v_price > 0 then
+    update master_balance set credits = credits - v_price, updated_at = now() where master_id = uid;
+    insert into balance_ledger (master_id, amount, reason, activation_id)
+    values (uid, -v_price, 'charge', v_job);
+  end if;
+
+  select coalesce(jsonb_agg(
+           case when e.step ? 'payload_id' then
+             e.step || jsonb_build_object(
+               'storage_path', p.storage_path, 'size_bytes', p.size_bytes,
+               'sha256', p.sha256, 'enc_key', p.enc_key, 'kind', p.kind)
+           else e.step end
+           order by e.ord), '[]'::jsonb)
+  into v_steps
+  from jsonb_array_elements(v_scenario.steps) with ordinality as e(step, ord)
+  left join payloads p on e.step ? 'payload_id' and p.id = (e.step->>'payload_id')::uuid;
+
+  return jsonb_build_object('job_id', v_job, 'price', v_price, 'repeat', v_repeat, 'steps', v_steps);
+end $$;
+
+create or replace function scenario_preview(
+  p_vin text, p_service_id int, p_model_id int, p_device jsonb
+) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_vin text := normalize_vin(p_vin);
+  v_price int;
+  v_scenario scenarios;
+  v_repeat boolean;
+begin
+  if auth.uid() is null then raise exception 'AUTH_REQUIRED'; end if;
+
+  select c.price, c.repeat into v_price, v_repeat from service_charge(v_vin, p_service_id, p_model_id) c;
+
+  select sc.* into v_scenario
+  from scenarios sc join firmwares f on f.id = sc.firmware_id
+  where sc.service_id = p_service_id and f.model_id = p_model_id
+    and sc.is_active and f.is_active
+    and coalesce(p_device->>'build', '') like f.version_pattern
+  order by sc.version desc limit 1;
+  if v_scenario.id is null then raise exception 'SCENARIO_NOT_FOUND'; end if;
+
+  return jsonb_build_object(
+    'price', v_price,
+    'repeat', v_repeat,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object('type', e.step->>'type', 'title', e.step->>'title') order by e.ord)
+      from jsonb_array_elements(v_scenario.steps) with ordinality as e(step, ord)
+      where not coalesce((e.step->>'hidden')::boolean, false)
+    ), '[]'::jsonb)
+  );
+end $$;
+
+revoke all on function scenario_preview from public;
+grant execute on function scenario_preview to authenticated;
+
+-- ===== supabase/migrations/0009_close_admin_signup_hole.sql =====
+-- Закрывает самостоятельное получение прав администратора при регистрации (аудит 13.10.2026, пункт B-1).
+--
+-- Причина: 0007 брала telegram_id из raw_user_meta_data, а это поле пользователь задаёт сам в signUp(data: {...}).
+-- Любой, кто подставил туда Telegram ID владельца, становился администратором.
+--
+-- Что меняется:
+--  1) Права владельца по Telegram выдаются только по raw_app_meta_data. Это поле не задаётся с клиента:
+--     его пишет лишь сервер (Edge Function telegram-auth через service_role).
+--  2) masters.telegram_id тоже берётся только из app_metadata: чужой Telegram ID больше нельзя «занять».
+--  3) Почта владельца больше не даёт права автоматически. Владелец уже записан в admins миграцией 0007.
+--     Если учётную запись владельца пересоздали, права выдаются вручную (supabase/audit_admins.sql).
+--  4) Метки name/phone ограничены по длине, created_via и telegram_username больше не берутся «на веру».
+--
+-- Миграция никого не удаляет и не разжалует: она выводит список текущих администраторов в сообщениях (NOTICE).
+-- Лишних администраторов разжалуйте вручную по supabase/audit_admins.sql.
+--
+-- ПОРЯДОК: сначала опубликовать новую версию функции telegram-auth (она начинает писать app_metadata),
+-- затем выполнить этот файл. Скрипт можно запускать повторно.
+
+create or replace function is_owner_telegram(p_telegram_id bigint) returns boolean
+language sql immutable as $$
+  select coalesce(p_telegram_id, 0) = 8106761823
+$$;
+
+create or replace function on_auth_user_created() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  m jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  a jsonb := coalesce(new.raw_app_meta_data, '{}'::jsonb);
+  -- Только из app_metadata (пишет сервер). Нечисловое значение игнорируется, а не ломает регистрацию.
+  tg bigint := case when a->>'telegram_id' ~ '^[0-9]{1,18}$' then (a->>'telegram_id')::bigint end;
+  owner boolean := is_owner_telegram(tg);
+begin
+  insert into masters (id, name, phone, status, role, email, telegram_id, telegram_username, created_via)
+  values (
+    new.id,
+    left(coalesce(nullif(trim(m->>'name'), ''), split_part(new.email, '@', 1)), 100),
+    left(nullif(trim(m->>'phone'), ''), 40),
+    case when owner then 'active' else 'pending' end,
+    case when owner then 'admin' else 'master' end,
+    case when tg is not null then null else new.email end,
+    tg,
+    case when tg is not null then left(nullif(trim(m->>'telegram_username'), ''), 64) end,
+    case when tg is not null then 'telegram'
+         when m->>'via' = 'email' then 'email'
+         else 'admin' end
+  )
+  on conflict (id) do nothing;
+  insert into master_balance (master_id) values (new.id) on conflict do nothing;
+  if owner then
+    insert into admins (user_id) values (new.id) on conflict do nothing;
+  end if;
+  return new;
+end $$;
+
+-- Старая функция принимала почту и Telegram ID из метаданных пользователя; больше не нужна.
+drop function if exists is_owner_identity(text, bigint);
+
+-- Текущие администраторы: должна быть только ваша учётная запись. Результат смотрите во вкладке сообщений.
+do $$
+declare
+  r record;
+  n int := 0;
+begin
+  for r in
+    select u.id, u.email, m.telegram_id, m.created_via, u.created_at
+    from auth.users u
+    left join masters m on m.id = u.id
+    where m.role = 'admin' or exists (select 1 from admins a where a.user_id = u.id)
+    order by u.created_at
+  loop
+    n := n + 1;
+    raise notice 'ADMIN % | email=% | telegram=% | via=% | создан %',
+      r.id, r.email, r.telegram_id, r.created_via, r.created_at;
+  end loop;
+  raise notice 'Администраторов: %. Лишних быть не должно, разжалуйте их по supabase/audit_admins.sql.', n;
 end $$;

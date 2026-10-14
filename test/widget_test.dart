@@ -52,6 +52,10 @@ void main() {
     expect(find.text('ADB: Не подключено'), findsOneWidget);
     expect(_dotColor(tester), NoxColors.bad);
     expect(find.byTooltip('Подключите автомобиль по USB/ADB'), findsWidgets);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('blocked-reason'))).data,
+      'Подключите автомобиль по USB/ADB',
+    );
     expect(_cards(tester), isNotEmpty);
     expect(_cards(tester).every((w) => w.onTap == null), isTrue);
   });
@@ -64,6 +68,7 @@ void main() {
     expect(find.text('ADB: Подключено (Устройство активно)'), findsOneWidget);
     expect(_dotColor(tester), NoxColors.ok);
     expect(find.byTooltip('Введите VIN (17 символов)'), findsWidgets);
+    expect(find.byKey(const Key('blocked-reason')), findsOneWidget);
     expect(_cards(tester).every((w) => w.onTap == null), isTrue);
   });
 
@@ -85,6 +90,7 @@ void main() {
 
     expect(find.text('Русификация и установка приложений'), findsOneWidget);
     expect(_cards(tester).length, 6);
+    expect(find.byKey(const Key('blocked-reason')), findsNothing);
     expect(_cards(tester).every((w) => w.onTap != null), isTrue);
   });
 

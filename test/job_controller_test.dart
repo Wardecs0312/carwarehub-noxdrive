@@ -225,6 +225,11 @@ void main() {
 
       await c.read(jobControllerProvider.notifier).requestRefund();
       expect(backend.refundRequested, isTrue);
+
+      // Повторное нажатие не создаёт вторую заявку.
+      await c.read(jobControllerProvider.notifier).requestRefund();
+      expect(backend.refundCalls, 1);
+      expect(c.read(jobControllerProvider).refundable, isFalse);
     },
   );
 

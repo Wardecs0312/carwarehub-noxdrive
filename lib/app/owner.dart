@@ -1,14 +1,17 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Владелец проекта: всегда администратор, при входе и по почте, и через Telegram.
-/// На сервере права проверяет nox_is_admin() (таблица admins и masters.role, миграция 0007),
-/// здесь — чтобы админ-панель не пропадала, даже если проверка на сервере не успела ответить.
+/// Владелец проекта: администратор и при входе по почте, и через Telegram.
+/// Права на самом деле проверяет сервер (`nox_is_admin()`, таблица admins и masters.role);
+/// здесь только быстрый признак, чтобы админ-панель не пропадала, пока сервер не ответил.
+///
+/// Смотрим только на данные, которые клиент подделать не может:
+/// `email` подтверждает сервер, `appMetadata` пишет только сервер.
+/// `userMetadata` пользователь задаёт сам при регистрации, ему верить нельзя.
 const kOwnerEmail = 'wardecsfly@gmail.com';
 const kOwnerTelegramId = 8106761823;
 
 bool isOwnerUser(User? user) {
   if (user == null) return false;
   if ((user.email ?? '').toLowerCase() == kOwnerEmail) return true;
-  final tg = user.userMetadata?['telegram_id'];
-  return tg?.toString() == '$kOwnerTelegramId';
+  return user.appMetadata['telegram_id']?.toString() == '$kOwnerTelegramId';
 }

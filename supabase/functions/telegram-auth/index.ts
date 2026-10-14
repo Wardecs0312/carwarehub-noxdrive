@@ -215,6 +215,9 @@ async function poll(nonce: string, req: Request) {
     const { data: created, error } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
+      // Права и привязку к Telegram база читает только отсюда: app_metadata не задаётся с клиента
+      // (user_metadata пользователь может подставить сам при signUp, см. миграцию 0009).
+      app_metadata: { telegram_id: row.telegram_id },
       user_metadata: {
         via: "telegram",
         name: row.telegram_name || row.telegram_username || `Telegram ${row.telegram_id}`,

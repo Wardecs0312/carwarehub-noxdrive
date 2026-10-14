@@ -326,12 +326,22 @@ class JobController extends Notifier<JobState> {
 
   Future<void> requestRefund() async {
     final id = state.jobId;
-    if (id == null) return;
-    await ref.read(jobBackendProvider).requestRefund(id, state.message ?? '');
-    state = state.copyWith(
-      refundable: false,
-      message: 'Заявка на возврат отправлена администратору',
-    );
+    // Кнопка гасится сразу: двойное нажатие не создаёт вторую заявку на возврат.
+    if (id == null || !state.refundable) return;
+    final reason = state.message ?? '';
+    state = state.copyWith(refundable: false);
+    try {
+      await ref.read(jobBackendProvider).requestRefund(id, reason);
+      state = state.copyWith(
+        message: 'Заявка на возврат отправлена администратору',
+      );
+    } catch (e) {
+      // Ошибку видно в окне, кнопка снова доступна.
+      state = state.copyWith(
+        refundable: true,
+        message: e is JobException ? e.message : 'Не удалось отправить заявку: $e',
+      );
+    }
   }
 }
 

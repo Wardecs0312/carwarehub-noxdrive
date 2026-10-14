@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 out=supabase/apply_all.sql
 {
   echo
-  echo '-- Все миграции одним файлом для вставки в SQL Editor Supabase (собрано из supabase/migrations/0001-0004).'
+  echo '-- Все миграции одним файлом для вставки в SQL Editor Supabase (собрано из всех файлов supabase/migrations, по порядку).'
   echo '-- Выполнять один раз. Если в проекте уже есть объекты с такими же именами,'
   echo '-- скрипт сразу остановится со списком совпадений и ничего не создаст.'
   echo

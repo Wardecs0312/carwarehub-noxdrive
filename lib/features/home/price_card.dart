@@ -114,7 +114,8 @@ class _GroupRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ok = group.availableFor(modelCode);
-    final dim = ok ? NoxColors.metalLight : NoxColors.metalDark;
+    // metalDark давал контраст ниже 3:1; недоступное отличается значком и подписью «Н/Д».
+    final dim = ok ? NoxColors.metalLight : NoxColors.metalMid;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -170,7 +171,7 @@ class _GroupRow extends StatelessWidget {
                     size: 16,
                     color: ok && !i.naModels.contains(modelCode)
                         ? NoxColors.ok
-                        : NoxColors.metalDark,
+                        : NoxColors.metalMid,
                   ),
                   const SizedBox(width: 6),
                   Expanded(
@@ -180,9 +181,10 @@ class _GroupRow extends StatelessWidget {
                           : i.title,
                       style: TextStyle(
                         fontSize: 13,
-                        color: i.naModels.contains(modelCode)
-                            ? NoxColors.metalDark
-                            : NoxColors.metalMid,
+                        color: NoxColors.metalMid,
+                        fontStyle: i.naModels.contains(modelCode)
+                            ? FontStyle.italic
+                            : FontStyle.normal,
                       ),
                     ),
                   ),

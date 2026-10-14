@@ -106,23 +106,29 @@ class HomeScreen extends ConsumerWidget {
                         )
                       else
                         services.when(
-                          data: (list) => GridView(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 340,
-                                  mainAxisExtent: 120,
-                                  mainAxisSpacing: 14,
-                                  crossAxisSpacing: 14,
-                                ),
+                          data: (list) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              for (var i = 0; i < list.length; i++)
-                                _ServiceCard(
-                                  index: i + 1,
-                                  service: list[i],
-                                  model: selected,
-                                ),
+                              const _BlockedReason(),
+                              GridView(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 340,
+                                      mainAxisExtent: 120,
+                                      mainAxisSpacing: 14,
+                                      crossAxisSpacing: 14,
+                                    ),
+                                children: [
+                                  for (var i = 0; i < list.length; i++)
+                                    _ServiceCard(
+                                      index: i + 1,
+                                      service: list[i],
+                                      model: selected,
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
                           loading: () => const LinearProgressIndicator(),
@@ -173,6 +179,11 @@ class _VinField extends ConsumerWidget {
         maxLength: 17,
         textCapitalization: TextCapitalization.characters,
         inputFormatters: [
+          // Русские буквы-двойники (С, Н, К…) из мессенджеров заменяются латинскими, иначе фильтр
+          // молча выбросил бы их, и счётчик показал бы 16/17 без объяснения.
+          TextInputFormatter.withFunction(
+            (o, n) => n.copyWith(text: latinizeVin(n.text)),
+          ),
           FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
           TextInputFormatter.withFunction(
             (o, n) => n.copyWith(text: n.text.toUpperCase()),
@@ -180,7 +191,8 @@ class _VinField extends ConsumerWidget {
         ],
         style: const TextStyle(fontSize: 18, letterSpacing: 2),
         decoration: InputDecoration(
-          hintText: 'LS5A3ABC1NA000000',
+          // Не настоящий VIN, чтобы подсказку не принимали за введённое значение.
+          hintText: '17 символов: латиница и цифры',
           counterText: '${vin.length}/17',
           suffixIcon: Icon(
             valid ? Icons.check_circle : Icons.circle_outlined,
@@ -191,6 +203,41 @@ class _VinField extends ConsumerWidget {
               : null,
         ),
         onChanged: (v) => ref.read(vinProvider.notifier).state = v,
+      ),
+    );
+  }
+}
+
+/// Почему услуги сейчас недоступны. Подсказка на карточке (Tooltip) на сенсорных экранах не видна,
+/// поэтому причина дублируется строкой над кнопками.
+String? serviceBlockedHint(AdbStatus adb, String vin) =>
+    adb.blockedHint ?? (isValidVin(vin) ? null : 'Введите VIN (17 символов)');
+
+class _BlockedReason extends ConsumerWidget {
+  const _BlockedReason();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final adb =
+        ref.watch(adbStatusProvider).value ??
+        const AdbStatus(AdbConnection.disconnected);
+    final hint = serviceBlockedHint(adb, ref.watch(vinProvider));
+    if (hint == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 18, color: NoxColors.warn),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hint,
+              key: const Key('blocked-reason'),
+              style: const TextStyle(color: NoxColors.metalLight),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -215,9 +262,7 @@ class _ServiceCard extends ConsumerWidget {
     final busy = ref.watch(jobControllerProvider).phase == JobPhase.running;
 
     // Подсказка, почему кнопка заблокирована. ADB важнее всего остального.
-    final hint =
-        adb.blockedHint ??
-        (isValidVin(vin) ? null : 'Введите VIN (17 символов)');
+    final hint = serviceBlockedHint(adb, vin);
     final enabled = hint == null && !busy;
 
     final card = Opacity(
@@ -259,7 +304,7 @@ class _ServiceCard extends ConsumerWidget {
                 Text(
                   '0$index',
                   style: const TextStyle(
-                    color: NoxColors.metalDark,
+                    color: NoxColors.metalMid,
                     letterSpacing: 2,
                   ),
                 ),

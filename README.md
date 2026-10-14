@@ -28,7 +28,11 @@ flutter build web --release --no-web-resources-cdn \
 
 ## Настройка Supabase
 
-1. Выполнить по порядку `supabase/migrations/0001_init.sql`, `0002_jobs.sql` и `0003_custom_apk.sql` и `0004_seed_scenarios.sql` в SQL Editor.
+1. Выполнить в SQL Editor все файлы `supabase/migrations/` по порядку (0001…0009) или один раз `supabase/apply_all.sql`
+   на пустом проекте (собирается из них скриптом `tool/build_apply_all.sh`).
+   Если проект уже работает на старых миграциях, выполнить только недостающие. Миграция `0009` закрывает получение прав
+   администратора при регистрации: перед ней опубликовать новую версию функции `telegram-auth`, после неё
+   выполнить `supabase/audit_admins.sql` и проверить список администраторов.
 2. Создать мастера: Authentication → Users → Add user, затем `insert into masters (id, name) values ('<uuid>', 'Имя');`
 3. Администратор: `insert into admins (user_id) values ('<uuid>');`
 4. Пополнение баланса: `select admin_topup('<uuid мастера>', 100);` (от имени администратора).
