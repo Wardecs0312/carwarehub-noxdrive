@@ -81,6 +81,20 @@ Future<CustomApk> _tempApk(
 }
 
 void main() {
+  test('обрыв связи в конце не превращает успешную установку в сбой', () async {
+    final (c, exec, backend, _) = await _setup(withReboot: false);
+    backend.failFinishSuccess = true;
+    await c
+        .read(jobControllerProvider.notifier)
+        .run(service: _service, vin: _vin, model: _model);
+
+    final s = c.read(jobControllerProvider);
+    expect(exec.calls, hasLength(1)); // установка выполнена
+    expect(s.phase, JobPhase.success);
+    expect(s.refundable, isFalse);
+    expect(s.message, contains('Возврат запрашивать не нужно'));
+  });
+
   test(
     'install_apk с grant выдаёт разрешения (-g), как adb install -r -g',
     () async {

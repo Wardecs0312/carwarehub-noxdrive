@@ -1,18 +1,64 @@
+import 'dart:io';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/platform.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../shell/metal_text.dart';
 
-/// Открывает загрузку установщика новой версии (приватный bucket `releases`, ссылка живёт 10 минут).
-/// Это единственный файл, который сознательно скачивается на диск: установщик должен запуститься.
-Future<void> openUpdate(AppRelease release) async {
-  final url = await Supabase.instance.client.storage
-      .from('releases')
-      .createSignedUrl(release.downloadPath, 600);
-  await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+/// Скачивает установщик новой версии из приватного bucket `releases`, сверяет контрольную сумму
+/// и только потом запускает. Это единственный файл, который сознательно пишется на диск.
+/// Если сумма не совпала, файл удаляется и установка не запускается.
+Future<void> openUpdate(BuildContext context, AppRelease release) async {
+  final messenger = ScaffoldMessenger.of(context);
+  void say(String text) =>
+      messenger.showSnackBar(SnackBar(content: Text(text)));
+  try {
+    final url = await Supabase.instance.client.storage
+        .from('releases')
+        .createSignedUrl(release.downloadPath, 600);
+    if (!canUseAdb) {
+      // Браузер: скачать и проверить в приложении нельзя, отдаём ссылку как есть.
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      return;
+    }
+    say('Скачиваю обновление...');
+    final file = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}nox_update_${release.version}.exe',
+    );
+    final client = HttpClient();
+    try {
+      final resp = await (await client.getUrl(Uri.parse(url))).close();
+      if (resp.statusCode != 200) {
+        throw Exception('сервер ответил кодом ${resp.statusCode}');
+      }
+      final sink = Sha256().newHashSink();
+      final out = file.openWrite();
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        out.add(chunk);
+      }
+      await out.close();
+      sink.close();
+      final actual = (await sink.hash()).bytes
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+      if (actual != release.sha256) {
+        await file.delete();
+        throw Exception('контрольная сумма файла не совпала');
+      }
+    } finally {
+      client.close(force: true);
+    }
+    await Process.start(file.path, const [], mode: ProcessStartMode.detached);
+    exit(0);
+  } catch (e) {
+    say('Не удалось обновить: $e');
+  }
 }
 
 class UpdateBanner extends StatelessWidget {
@@ -33,7 +79,7 @@ class UpdateBanner extends StatelessWidget {
           ),
         ),
         TextButton(
-          onPressed: () => openUpdate(release),
+          onPressed: () => openUpdate(context, release),
           child: const Text('Обновить'),
         ),
       ],
@@ -71,7 +117,7 @@ class UpdateRequiredScreen extends StatelessWidget {
           ],
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: () => openUpdate(release),
+            onPressed: () => openUpdate(context, release),
             child: const Text('Скачать обновление'),
           ),
         ],

@@ -44,6 +44,7 @@ class AppRelease {
     required this.buildNumber,
     required this.isMandatory,
     required this.downloadPath,
+    required this.sha256,
     this.minSupportedVersion,
     this.releaseNotes,
   });
@@ -51,6 +52,9 @@ class AppRelease {
   final int buildNumber;
   final bool isMandatory;
   final String downloadPath;
+
+  /// Контрольная сумма установщика (hex). Проверяется перед запуском.
+  final String sha256;
   final String? minSupportedVersion;
   final String? releaseNotes;
 
@@ -59,6 +63,7 @@ class AppRelease {
     buildNumber: j['build_number'] as int,
     isMandatory: (j['is_mandatory'] as bool?) ?? false,
     downloadPath: j['download_path'] as String,
+    sha256: (j['sha256'] as String).toLowerCase(),
     minSupportedVersion: j['min_supported_version'] as String?,
     releaseNotes: j['release_notes'] as String?,
   );

@@ -1,7 +1,35 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'adb_status.dart';
+
+/// Запускает процесс и убивает его, если он не завершился за [timeout].
+/// `Process.run(...).timeout()` только перестаёт ждать, а сам процесс продолжает висеть.
+Future<ProcessResult> runWithTimeout(
+  String executable,
+  List<String> args,
+  Duration timeout,
+) async {
+  final p = await Process.start(executable, args);
+  final out = <int>[];
+  final err = <int>[];
+  final outDone = p.stdout.forEach(out.addAll);
+  final errDone = p.stderr.forEach(err.addAll);
+  try {
+    final code = await p.exitCode.timeout(timeout);
+    await Future.wait([outDone, errDone]);
+    return ProcessResult(
+      p.pid,
+      code,
+      utf8.decode(out, allowMalformed: true),
+      utf8.decode(err, allowMalformed: true),
+    );
+  } on TimeoutException {
+    p.kill();
+    rethrow;
+  }
+}
 
 /// Источник данных об ADB-устройствах. В тестах подменяется заглушкой.
 abstract class AdbClient {
@@ -64,10 +92,10 @@ class ProcessAdbClient implements AdbClient {
   @override
   Future<AdbStatus> readStatus() async {
     try {
-      final result = await Process.run(_adbPath, [
+      final result = await runWithTimeout(_adbPath, [
         'devices',
         '-l',
-      ]).timeout(const Duration(seconds: 5));
+      ], const Duration(seconds: 5));
       if (result.exitCode != 0) {
         return const AdbStatus(AdbConnection.disconnected);
       }
