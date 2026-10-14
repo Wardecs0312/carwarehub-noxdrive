@@ -106,3 +106,12 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# ADB: папка windows/adb (adb.exe, AdbWinApi.dll, AdbWinUsbApi.dll) копируется рядом с программой.
+# Программа ищет adb в adb/adb.exe рядом с .exe (см. lib/adb/adb_client.dart).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/adb/adb.exe")
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/adb/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/adb" COMPONENT Runtime)
+else()
+  message(WARNING "windows/adb/adb.exe не найден: в сборку не попадёт ADB")
+endif()
