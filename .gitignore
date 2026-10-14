@@ -53,3 +53,6 @@ tool/local/
 # adb и scrcpy для сборки: кладутся вручную, в git не хранятся
 /windows/adb/
 /windows/scrcpy/
+
+# Готовые установщики
+/installer/Output/

@@ -55,13 +55,13 @@ flutter build windows --release "--dart-define=SUPABASE_URL=$env:SUPABASE_URL" "
 if ($LASTEXITCODE -ne 0) { throw 'flutter build windows завершился с ошибкой' }
 
 $release = 'build\windows\x64\runner\Release'
+# adb и scrcpy всегда берутся свежими из windows\, чтобы в сборке не осталась старая версия.
 foreach ($tool in 'adb', 'scrcpy') {
-  if (-not (Test-Path "$release\$tool\$tool.exe")) {
-    if (Test-Path "windows\$tool\$tool.exe") {
-      Copy-Item "windows\$tool" "$release\$tool" -Recurse -Force
-    } else {
-      throw "Нет $tool\$tool.exe ни в $release, ни в windows\$tool. Положите папку $tool туда."
-    }
+  if (Test-Path "windows\$tool\$tool.exe") {
+    if (Test-Path "$release\$tool") { Remove-Item "$release\$tool" -Recurse -Force }
+    Copy-Item "windows\$tool" "$release\$tool" -Recurse -Force
+  } elseif (-not (Test-Path "$release\$tool\$tool.exe")) {
+    throw "Нет $tool\$tool.exe ни в $release, ни в windows\$tool. Положите папку $tool туда."
   }
 }
 
