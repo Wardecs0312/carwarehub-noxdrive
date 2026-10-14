@@ -193,14 +193,19 @@ class JobController extends Notifier<JobState> {
         await runScenarioStep(main.length + customs.length + k, tail[k]);
       }
 
-      await backend.finishJob(jobId, success: true, log: log.toString());
+      // Установка уже прошла. Обрыв связи в конце не должен превращать её в «сбой»,
+      // поэтому отметку об успехе отправляем с повторами и не роняем задание, если не вышло.
+      final reported = await _reportSuccess(backend, jobId, log.toString());
+      final notes = [
+        if (failed.isNotEmpty)
+          'Основной пакет установлен. Не удалось установить: ${failed.join(', ')}',
+        if (!reported) 'Услуга выполнена, но связь с сервером потеряна. Возврат запрашивать не нужно',
+      ];
       state = state.copyWith(
         phase: JobPhase.success,
         progress: 1,
         stepTitle: 'Готово',
-        message: failed.isEmpty
-            ? null
-            : 'Основной пакет установлен. Не удалось установить: ${failed.join(', ')}',
+        message: notes.isEmpty ? null : notes.join('. '),
       );
       ref.invalidate(balanceProvider);
     } catch (e) {
@@ -221,6 +226,23 @@ class JobController extends Notifier<JobState> {
       );
       ref.invalidate(balanceProvider);
     }
+  }
+
+  /// Отправляет серверу отметку об успехе: до 3 попыток с паузой. Возвращает false, если не удалось.
+  Future<bool> _reportSuccess(
+    JobBackend backend,
+    String jobId,
+    String log,
+  ) async {
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await backend.finishJob(jobId, success: true, log: log);
+        return true;
+      } catch (_) {
+        if (attempt < 3) await Future<void>.delayed(Duration(seconds: attempt));
+      }
+    }
+    return false;
   }
 
   Future<void> _installCustom(
