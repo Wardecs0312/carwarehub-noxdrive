@@ -1,0 +1,7 @@
+# Образец. Скопируйте в android/key.properties (в git не попадает) и впишите свои значения.
+# Ключ один на все выпуски: потеряете его — мастерам придётся переустанавливать приложение.
+storeFile=C:/путь/к/nox-drive-release.p12
+storeType=PKCS12
+keyAlias=nox-release
+storePassword=пароль
+keyPassword=тот же пароль

@@ -1,7 +1,18 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Ключ подписи выпуска: android/key.properties (в git не попадает, образец в key.properties.example).
+// Все версии для мастеров подписываются одним ключом, иначе Android не установит обновление поверх.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -29,11 +40,23 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeType = keystoreProperties.getProperty("storeType", "PKCS12")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
@@ -46,4 +69,17 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// Выпуск без ключа не собираем: APK с другим ключом не обновится поверх установленного у мастеров.
+// Отладочные сборки (flutter run) работают и без ключа.
+gradle.taskGraph.whenReady {
+    val releaseTask = allTasks.any {
+        (it.name.startsWith("assemble") || it.name.startsWith("bundle")) && it.name.endsWith("Release")
+    }
+    if (releaseTask && !keystorePropertiesFile.exists()) {
+        throw GradleException(
+            "Нет android/key.properties с ключом подписи выпуска (см. android/key.properties.example)",
+        )
+    }
 }
