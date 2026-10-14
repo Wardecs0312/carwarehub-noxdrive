@@ -60,3 +60,6 @@ supabase/.temp/
 
 # ADB для сборки Windows: копируется из platform-tools, в git не хранится
 /windows/adb/
+
+# Готовые установщики
+/installer/Output/

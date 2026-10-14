@@ -14,11 +14,21 @@ flutter run -d windows \
 Без этих параметров приложение работает в демо-режиме (без входа, демо-каталог, безопасный тестовый шаг).
 Service key в приложение не добавлять.
 
-### Сборка для Windows
+### Сборка установщика для Windows
 
-Перед `flutter build windows --release` положите в папку `windows/adb/` файлы `adb.exe`, `AdbWinApi.dll`, `AdbWinUsbApi.dll`
-(из Android platform-tools). Сборка копирует их в `adb/` рядом с программой. Без них мастер увидит «Не найден компонент ADB».
-Ключи Supabase передаются через `--dart-define` (см. выше), без них приложение уходит в демо-режим.
+Нужны Flutter, Visual Studio Build Tools (C++), Inno Setup 6 и папка `windows/adb/` с файлами
+`adb.exe`, `AdbWinApi.dll`, `AdbWinUsbApi.dll` (из Android platform-tools, в git не хранятся).
+
+```
+$env:SUPABASE_URL = 'https://<project>.supabase.co'
+$env:SUPABASE_ANON_KEY = '<publishable/anon key>'
+powershell -ExecutionPolicy Bypass -File tooluild_windows_installer.ps1
+```
+
+Результат: `installer/Output/nox.drive-Setup-<версия>.exe` и готовая строка SQL для `app_releases` с контрольной суммой.
+Установщик ставит программу без прав администратора, кладёт рядом библиотеки Visual C++ и папку `adb`,
+перед обновлением и удалением останавливает фоновый adb. Версия берётся из `pubspec.yaml`.
+Приложение проверяет sha256 установщика перед запуском обновления, поэтому запись в `app_releases` должна совпадать с файлом.
 
 ### Кабинет мастера в браузере (PWA)
 
