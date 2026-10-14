@@ -98,6 +98,8 @@ async function poll(nonce: string) {
   const { data: row } = await admin.from("telegram_logins").select("*").eq("nonce", nonce).maybeSingle();
   if (!row || row.consumed_at) return json({ status: "invalid" });
   if (!row.confirmed_at) return json({ status: fresh(row.created_at) ? "pending" : "expired" });
+  // Подтверждённый, но не забранный вовремя код тоже устаревает.
+  if (!fresh(row.created_at)) return json({ status: "expired" });
 
   // Мастер с этим Telegram уже есть? Иначе регистрируем нового (статус pending через триггер).
   const email = `tg-${row.telegram_id}@telegram.nox.drive`;
@@ -106,10 +108,12 @@ async function poll(nonce: string) {
     const { error } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
+      // telegram_id только в app_metadata: её пишет сервер, а user_metadata задаёт сам пользователь
+      // при регистрации по почте. По telegram_id определяется владелец (администратор).
+      app_metadata: { telegram_id: row.telegram_id },
       user_metadata: {
         via: "telegram",
         name: row.telegram_name || row.telegram_username || `Telegram ${row.telegram_id}`,
-        telegram_id: row.telegram_id,
         telegram_username: row.telegram_username,
       },
     });
