@@ -184,6 +184,25 @@ final priceGroupsProvider = FutureProvider<List<PriceGroup>>((ref) async {
   }
 });
 
+/// Специальные цены текущего мастера (код строки прайса → кредиты). Пусто — обычные цены.
+final myPricesProvider = FutureProvider<Map<String, int>>((ref) async {
+  if (!Env.hasSupabase) return const {};
+  final uid = Supabase.instance.client.auth.currentUser?.id;
+  if (uid == null) return const {};
+  try {
+    final rows = await Supabase.instance.client
+        .from('master_prices')
+        .select('group_code, price_credits')
+        .eq('master_id', uid);
+    return {
+      for (final r in rows)
+        '${r['group_code']}': (r['price_credits'] as num?)?.toInt() ?? 0,
+    };
+  } catch (_) {
+    return const {}; // таблицы ещё нет (миграция 0011 не применена)
+  }
+});
+
 final updateProvider = FutureProvider(
   (ref) => ref.watch(catalogRepositoryProvider).availableUpdate(),
 );

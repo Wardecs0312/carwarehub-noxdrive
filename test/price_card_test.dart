@@ -1,5 +1,6 @@
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
+import 'package:carwarehub_noxdrive/data/catalog_repository.dart';
 import 'package:carwarehub_noxdrive/data/models.dart';
 import 'package:carwarehub_noxdrive/main.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ Future<void> _pickModel(
   WidgetTester tester,
   String title, {
   double width = 1400,
+  Map<String, int> special = const {},
 }) async {
   tester.view.physicalSize = Size(width, 1600);
   tester.view.devicePixelRatio = 1;
@@ -21,6 +23,7 @@ Future<void> _pickModel(
         adbStatusProvider.overrideWith(
           (_) => Stream.value(const AdbStatus(AdbConnection.disconnected)),
         ),
+        myPricesProvider.overrideWith((_) async => special),
       ],
       child: const NoxDriveApp(),
     ),
@@ -66,5 +69,15 @@ void main() {
     await _pickModel(tester, 'Changan UNI-V', width: 360);
     expect(find.byKey(const Key('price-card')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('специальная цена мастера: 2 кр. вместо 4, итог пересчитан', (
+    tester,
+  ) async {
+    await _pickModel(tester, 'Changan UNI-V', special: {'complex': 2});
+    expect(find.text('2 кр.'), findsNWidgets(2));
+    expect(find.text('обычно 4 кр.'), findsOneWidget);
+    expect(_text(tester, 'price-total'), '4 кр.');
+    expect(_text(tester, 'price-total-money'), 'ваша специальная цена');
   });
 }

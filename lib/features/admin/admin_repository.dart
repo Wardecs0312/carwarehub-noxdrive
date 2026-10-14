@@ -133,6 +133,24 @@ class AdminRepository {
     params: {'p_master': masterId, 'p_name': name.trim()},
   );
 
+  /// Специальные цены мастера: код строки прайса → цена в кредитах.
+  Future<Map<String, int>> masterPrices(String masterId) async {
+    final rows = await _db
+        .from('master_prices')
+        .select('group_code, price_credits')
+        .eq('master_id', masterId);
+    return {
+      for (final r in rows) str(r['group_code']): intOr(r['price_credits']),
+    };
+  }
+
+  /// Специальная цена мастеру; null — снять, мастер платит обычную цену.
+  Future<void> setMasterPrice(String masterId, String group, int? credits) =>
+      _db.rpc(
+        'admin_set_master_price',
+        params: {'p_master': masterId, 'p_group': group, 'p_price': credits},
+      );
+
   /// pending → active (одобрить), active ↔ blocked.
   Future<void> setMasterStatus(String masterId, String status) => _db.rpc(
     'admin_set_master_status',

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../../data/catalog_repository.dart';
+import '../../data/models.dart';
 import '../history/history_repository.dart';
 import '../history/history_screen.dart';
 import '../stream/stream_clock.dart';
@@ -53,6 +55,175 @@ class _TelegramSetupButton extends ConsumerWidget {
         if (context.mounted) _toast(context, 'Не удалось: $e');
       }
     },
+  );
+}
+
+/// Настройки мастера: имя и специальные цены по строкам прайса.
+/// Пустое поле цены — обычная цена для всех.
+class _MasterSettingsDialog extends ConsumerStatefulWidget {
+  const _MasterSettingsDialog({required this.master});
+  final MasterRow master;
+
+  @override
+  ConsumerState<_MasterSettingsDialog> createState() =>
+      _MasterSettingsDialogState();
+}
+
+class _MasterSettingsDialogState extends ConsumerState<_MasterSettingsDialog> {
+  late final _name = TextEditingController(text: widget.master.name);
+  final _prices = <String, TextEditingController>{};
+  Map<String, int> _initial = const {};
+  List<PriceGroup> _groups = const [];
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final groups = await ref.read(priceGroupsProvider.future);
+      final special = await ref
+          .read(adminRepositoryProvider)
+          .masterPrices(widget.master.id);
+      if (!mounted) return;
+      setState(() {
+        _groups = groups;
+        _initial = special;
+        for (final g in groups) {
+          _prices[g.code] = TextEditingController(
+            text: special[g.code]?.toString() ?? '',
+          );
+        }
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = '$e'.contains('master_prices')
+              ? 'Специальные цены появятся после SQL update_0011.sql в Supabase'
+              : 'Цены не загрузились: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    final repo = ref.read(adminRepositoryProvider);
+    final name = _name.text.trim();
+    // Сначала проверяем все поля, чтобы не сохранить половину.
+    final changes = <String, int?>{};
+    for (final g in _groups) {
+      final raw = _prices[g.code]!.text.trim();
+      final v = raw.isEmpty ? null : int.tryParse(raw);
+      if (raw.isNotEmpty && (v == null || v < 0)) {
+        setState(() => _error = '«${g.title}»: цена — целое число кредитов');
+        return;
+      }
+      if (v != _initial[g.code]) changes[g.code] = v;
+    }
+    if (name.isEmpty) {
+      setState(() => _error = 'Имя не может быть пустым');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      if (name != widget.master.name) {
+        await repo.renameMaster(widget.master.id, name);
+      }
+      for (final e in changes.entries) {
+        await repo.setMasterPrice(widget.master.id, e.key, e.value);
+      }
+      if (mounted) Navigator.pop(context, 'Сохранено: $name');
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = '$e'.contains('admin_set_master')
+              ? 'Сначала выполните в Supabase SQL update_0010.sql и update_0011.sql'
+              : 'Не удалось: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    for (final c in _prices.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Мастер'),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const Key('rename-field'),
+              controller: _name,
+              autofocus: true,
+              maxLength: 60,
+              decoration: const InputDecoration(labelText: 'Имя (ник)'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Специальные цены',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const Text(
+              'Пустое поле — обычная цена.',
+              style: TextStyle(fontSize: 12, color: NoxColors.metalMid),
+            ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const LinearProgressIndicator()
+            else
+              for (final g in _groups)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    key: Key('price-${g.code}'),
+                    controller: _prices[g.code],
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: g.title,
+                      hintText: 'обычно ${g.priceCredits} кр.',
+                      suffixText: 'кр.',
+                    ),
+                  ),
+                ),
+            if (_error != null)
+              Text(_error!, style: const TextStyle(color: NoxColors.bad)),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(
+        onPressed: _saving || _loading ? null : _save,
+        child: const Text('Сохранить'),
+      ),
+    ],
   );
 }
 
@@ -187,47 +358,15 @@ class _MastersTab extends ConsumerWidget {
     ),
   );
 
+  /// Окно мастера: имя (ник) и специальные цены.
   Future<void> _rename(BuildContext context, WidgetRef ref, MasterRow m) async {
-    final ctrl = TextEditingController(text: m.name);
-    final name = await showDialog<String>(
+    final saved = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Изменить имя'),
-        content: TextField(
-          key: const Key('rename-field'),
-          controller: ctrl,
-          autofocus: true,
-          maxLength: 60,
-          decoration: const InputDecoration(labelText: 'Имя (ник)'),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text),
-            child: const Text('Сохранить'),
-          ),
-        ],
-      ),
+      builder: (_) => _MasterSettingsDialog(master: m),
     );
-    final v = name?.trim() ?? '';
-    if (v.isEmpty || v == m.name || !context.mounted) return;
-    try {
-      await ref.read(adminRepositoryProvider).renameMaster(m.id, v);
+    if (saved != null && context.mounted) {
       ref.invalidate(adminMastersProvider);
-      if (context.mounted) _toast(context, 'Имя изменено: $v');
-    } catch (e) {
-      if (context.mounted) {
-        _toast(
-          context,
-          '$e'.contains('admin_set_master_name')
-              ? 'Сначала выполните SQL update_0010.sql в Supabase'
-              : 'Не удалось: $e',
-        );
-      }
+      _toast(context, saved);
     }
   }
 

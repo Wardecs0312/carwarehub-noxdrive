@@ -15,8 +15,12 @@ class PriceCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final groups = ref.watch(priceGroupsProvider).value ?? const <PriceGroup>[];
     if (groups.isEmpty) return const SizedBox.shrink();
+    // Специальные цены мастера (назначает админ); без них — обычные.
+    final special = ref.watch(myPricesProvider).value ?? const <String, int>{};
+    int eff(PriceGroup g) => special[g.code] ?? g.priceCredits;
     final available = groups.where((g) => g.availableFor(model.code)).toList();
-    final totalCredits = available.fold<int>(0, (s, g) => s + g.priceCredits);
+    final hasSpecial = available.any((g) => special.containsKey(g.code));
+    final totalCredits = available.fold<int>(0, (s, g) => s + eff(g));
     final totalRub = available.fold<int>(0, (s, g) => s + g.priceRub);
     final totalUsd = available.fold<int>(0, (s, g) => s + g.priceUsd);
     const muted = TextStyle(color: NoxColors.metalMid, fontSize: 13);
@@ -39,7 +43,11 @@ class PriceCard extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           for (final g in groups) ...[
-            _GroupRow(group: g, modelCode: model.code),
+            _GroupRow(
+              group: g,
+              modelCode: model.code,
+              special: special[g.code],
+            ),
             const Divider(height: 20, color: NoxColors.border),
           ],
           Row(
@@ -53,7 +61,9 @@ class PriceCard extends ConsumerWidget {
               const SizedBox(width: 12),
               _Price(
                 credits: '$totalCredits кр.',
-                money: '${formatRub(totalRub)} / \$$totalUsd',
+                money: hasSpecial
+                    ? 'ваша специальная цена'
+                    : '${formatRub(totalRub)} / \$$totalUsd',
                 keyPrefix: 'price-total',
                 big: true,
               ),
@@ -107,9 +117,12 @@ class _Price extends StatelessWidget {
 }
 
 class _GroupRow extends StatelessWidget {
-  const _GroupRow({required this.group, required this.modelCode});
+  const _GroupRow({required this.group, required this.modelCode, this.special});
   final PriceGroup group;
   final String modelCode;
+
+  /// Специальная цена этого мастера в кредитах (null — обычная).
+  final int? special;
 
   @override
   Widget build(BuildContext context) {
@@ -144,8 +157,10 @@ class _GroupRow extends StatelessWidget {
             const SizedBox(width: 12),
             if (ok)
               _Price(
-                credits: '${group.priceCredits} кр.',
-                money: '${formatRub(group.priceRub)} / \$${group.priceUsd}',
+                credits: '${special ?? group.priceCredits} кр.',
+                money: special != null
+                    ? 'обычно ${group.priceCredits} кр.'
+                    : '${formatRub(group.priceRub)} / \$${group.priceUsd}',
               )
             else
               const Text(

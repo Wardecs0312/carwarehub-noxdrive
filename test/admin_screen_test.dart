@@ -10,6 +10,17 @@ class _FakeRepo extends AdminRepository {
   final streams = <(String, List<String>)>[];
   final statuses = <(String, String)>[];
   final renames = <(String, String)>[];
+  final prices = <(String, String, int?)>[];
+
+  @override
+  Future<Map<String, int>> masterPrices(String masterId) async => const {};
+
+  @override
+  Future<void> setMasterPrice(
+    String masterId,
+    String group,
+    int? credits,
+  ) async => prices.add((masterId, group, credits));
 
   @override
   Future<void> renameMaster(String masterId, String name) async =>
@@ -136,5 +147,32 @@ void main() {
     await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
     expect(repo.renames, [('m1', 'Админ')]);
+  });
+
+  testWidgets('специальная цена мастеру: только изменённая строка прайса', (
+    tester,
+  ) async {
+    final repo = await _pump(tester);
+    await tester.tap(find.byKey(const Key('rename-m1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Специальные цены'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('price-complex')), '2');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(repo.prices, [('m1', 'complex', 2)]);
+    expect(repo.renames, isEmpty);
+  });
+
+  testWidgets('цена не числом: понятная ошибка, ничего не сохраняется', (
+    tester,
+  ) async {
+    final repo = await _pump(tester);
+    await tester.tap(find.byKey(const Key('rename-m1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('price-cluster')), 'abc');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('целое число'), findsOneWidget);
+    expect(repo.prices, isEmpty);
   });
 }
