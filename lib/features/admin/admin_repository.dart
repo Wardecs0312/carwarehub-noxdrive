@@ -127,6 +127,12 @@ class AdminRepository {
     params: {'p_master': masterId, 'p_amount': amount},
   );
 
+  /// Новое имя (ник) мастера или самого администратора, 1–60 символов.
+  Future<void> renameMaster(String masterId, String name) => _db.rpc(
+    'admin_set_master_name',
+    params: {'p_master': masterId, 'p_name': name.trim()},
+  );
+
   /// pending → active (одобрить), active ↔ blocked.
   Future<void> setMasterStatus(String masterId, String status) => _db.rpc(
     'admin_set_master_status',

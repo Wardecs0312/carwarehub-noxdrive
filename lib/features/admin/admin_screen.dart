@@ -126,7 +126,22 @@ class _MastersTab extends ConsumerWidget {
             _ => NoxColors.bad,
           },
         ),
-        title: Text(m.name),
+        // Нажатие на имя открывает переименование (и для себя, и для любого мастера).
+        title: InkWell(
+          key: Key('rename-${m.id}'),
+          onTap: () => _rename(context, ref, m),
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '${m.name} '),
+                const WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Icon(Icons.edit, size: 14, color: NoxColors.metalMid),
+                ),
+              ],
+            ),
+          ),
+        ),
         subtitle: Text(
           [
             if (m.phone != null) m.phone!,
@@ -171,6 +186,50 @@ class _MastersTab extends ConsumerWidget {
       ),
     ),
   );
+
+  Future<void> _rename(BuildContext context, WidgetRef ref, MasterRow m) async {
+    final ctrl = TextEditingController(text: m.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Изменить имя'),
+        content: TextField(
+          key: const Key('rename-field'),
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 60,
+          decoration: const InputDecoration(labelText: 'Имя (ник)'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    final v = name?.trim() ?? '';
+    if (v.isEmpty || v == m.name || !context.mounted) return;
+    try {
+      await ref.read(adminRepositoryProvider).renameMaster(m.id, v);
+      ref.invalidate(adminMastersProvider);
+      if (context.mounted) _toast(context, 'Имя изменено: $v');
+    } catch (e) {
+      if (context.mounted) {
+        _toast(
+          context,
+          '$e'.contains('admin_set_master_name')
+              ? 'Сначала выполните SQL update_0010.sql в Supabase'
+              : 'Не удалось: $e',
+        );
+      }
+    }
+  }
 
   Future<void> _setStatus(
     BuildContext context,

@@ -9,6 +9,11 @@ class _FakeRepo extends AdminRepository {
   final decisions = <(String, bool)>[];
   final streams = <(String, List<String>)>[];
   final statuses = <(String, String)>[];
+  final renames = <(String, String)>[];
+
+  @override
+  Future<void> renameMaster(String masterId, String name) async =>
+      renames.add((masterId, name));
 
   @override
   Future<void> setMasterStatus(String masterId, String status) async =>
@@ -81,7 +86,7 @@ Future<_FakeRepo> _pump(WidgetTester tester) async {
 void main() {
   testWidgets('мастера с балансом, пополнение', (tester) async {
     final repo = await _pump(tester);
-    expect(find.text('Иван'), findsOneWidget);
+    expect(find.textContaining('Иван', findRichText: true), findsOneWidget);
     expect(find.text('100 кр.'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Пополнить баланс').first);
@@ -119,5 +124,17 @@ void main() {
     await tester.tap(find.text('Одобрить'));
     await tester.pumpAndSettle();
     expect(repo.statuses, [('m2', 'active')]);
+  });
+
+  testWidgets('переименование мастера: нажатие на имя, новое имя сохраняется', (
+    tester,
+  ) async {
+    final repo = await _pump(tester);
+    await tester.tap(find.byKey(const Key('rename-m1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('rename-field')), '  Админ  ');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(repo.renames, [('m1', 'Админ')]);
   });
 }

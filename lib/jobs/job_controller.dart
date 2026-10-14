@@ -339,7 +339,9 @@ class JobController extends Notifier<JobState> {
       // Ошибку видно в окне, кнопка снова доступна.
       state = state.copyWith(
         refundable: true,
-        message: e is JobException ? e.message : 'Не удалось отправить заявку: $e',
+        message: e is JobException
+            ? e.message
+            : 'Не удалось отправить заявку: $e',
       );
     }
   }
