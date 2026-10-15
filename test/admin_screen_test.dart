@@ -154,6 +154,8 @@ void main() {
 
   testWidgets('возврат: одобрение', (tester) async {
     final repo = await _pump(tester);
+    await tester.ensureVisible(find.text('Возвраты'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Возвраты'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Русификация'), findsOneWidget);

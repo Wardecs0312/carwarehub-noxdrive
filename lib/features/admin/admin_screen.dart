@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../../data/catalog_repository.dart';
 import '../../data/models.dart';
+import '../history/credits_repository.dart';
+import '../history/credits_screen.dart';
 import '../history/history_repository.dart';
 import '../history/history_screen.dart';
 import '../stream/stream_clock.dart';
@@ -17,7 +19,7 @@ class AdminScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-    length: 4,
+    length: 5,
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Админ-панель'),
@@ -27,13 +29,23 @@ class AdminScreen extends StatelessWidget {
           tabs: [
             Tab(icon: Icon(Icons.people_outline), text: 'Мастера'),
             Tab(icon: Icon(Icons.receipt_long), text: 'Журнал'),
+            Tab(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              text: 'Кредиты',
+            ),
             Tab(icon: Icon(Icons.undo), text: 'Возвраты'),
             Tab(icon: Icon(Icons.videocam_outlined), text: 'Трансляции'),
           ],
         ),
       ),
       body: const TabBarView(
-        children: [_MastersTab(), _JournalTab(), _RefundsTab(), _StreamsTab()],
+        children: [
+          _MastersTab(),
+          _JournalTab(),
+          _CreditsTab(),
+          _RefundsTab(),
+          _StreamsTab(),
+        ],
       ),
     ),
   );
@@ -458,6 +470,7 @@ class _MastersTab extends ConsumerWidget {
           .read(adminRepositoryProvider)
           .adjustCredits(m.id, signed, reasonCtrl.text);
       ref.invalidate(adminMastersProvider);
+      ref.invalidate(allCreditsProvider);
       if (context.mounted) {
         _toast(
           context,
@@ -662,5 +675,18 @@ class _JournalTab extends ConsumerWidget {
     onRefresh: () => ref.refresh(allHistoryProvider.future),
     showMaster: true,
     empty: 'Операций пока нет. Здесь появится каждая услуга, запущенная мастерами.',
+  );
+}
+
+/// Движение кредитов всех мастеров: пополнения, оплата услуг, списания и возвраты.
+class _CreditsTab extends ConsumerWidget {
+  const _CreditsTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => CreditList(
+    value: ref.watch(allCreditsProvider),
+    onRefresh: () => ref.refresh(allCreditsProvider.future),
+    showMaster: true,
+    empty: 'Операций с кредитами пока нет.',
   );
 }

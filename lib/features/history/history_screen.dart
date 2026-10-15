@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import 'credits_screen.dart';
 import 'history_repository.dart';
 
 const _months = [
@@ -19,7 +20,8 @@ const _months = [
   'дек',
 ];
 
-String _when(DateTime d) {
+/// Дата и время по-русски: «13 окт 2026, 10:30».
+String formatWhen(DateTime d) {
   final l = d.toLocal();
   String two(int v) => v.toString().padLeft(2, '0');
   return '${l.day} ${_months[l.month - 1]} ${l.year}, ${two(l.hour)}:${two(l.minute)}';
@@ -33,18 +35,37 @@ String _when(DateTime d) {
   _ => (NoxColors.metalMid, s.isEmpty ? '—' : s, Icons.help_outline),
 };
 
-/// «Моя история»: работы мастера.
+/// «Моя история»: машины, на которых работал мастер, и движение кредитов.
 class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    appBar: AppBar(title: const Text('Моя история')),
-    body: HistoryList(
-      value: ref.watch(myHistoryProvider),
-      onRefresh: () => ref.refresh(myHistoryProvider.future),
-      showMaster: false,
-      empty: 'Здесь появятся ваши работы: какое авто, какая услуга и прошивка, когда и с каким результатом.',
+  Widget build(BuildContext context, WidgetRef ref) => DefaultTabController(
+    length: 2,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('Моя история'),
+        bottom: const TabBar(
+          tabs: [
+            Tab(icon: Icon(Icons.directions_car_outlined), text: 'Машины'),
+            Tab(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              text: 'Кредиты',
+            ),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        children: [
+          HistoryList(
+            value: ref.watch(myHistoryProvider),
+            onRefresh: () => ref.refresh(myHistoryProvider.future),
+            showMaster: false,
+            empty: 'Здесь появятся ваши работы: какое авто, какая услуга и прошивка, когда и с каким результатом.',
+          ),
+          const MyCreditsTab(),
+        ],
+      ),
     ),
   );
 }
@@ -71,6 +92,9 @@ class HistoryList extends StatefulWidget {
 class _HistoryListState extends State<HistoryList> {
   final _search = TextEditingController();
   String _status = 'all';
+
+  /// Показывать по машинам: каждый VIN одной карточкой со всеми работами.
+  bool _byCar = false;
 
   @override
   void dispose() {
@@ -155,6 +179,26 @@ class _HistoryListState extends State<HistoryList> {
                   ),
               ],
             ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  key: const Key('view-jobs'),
+                  avatar: const Icon(Icons.list, size: 18),
+                  label: const Text('Все работы'),
+                  selected: !_byCar,
+                  onSelected: (_) => setState(() => _byCar = false),
+                ),
+                ChoiceChip(
+                  key: const Key('view-cars'),
+                  avatar: const Icon(Icons.directions_car_outlined, size: 18),
+                  label: const Text('По машинам'),
+                  selected: _byCar,
+                  onSelected: (_) => setState(() => _byCar = true),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             if (all.isEmpty)
               Padding(
@@ -174,6 +218,11 @@ class _HistoryListState extends State<HistoryList> {
                   style: TextStyle(color: NoxColors.metalMid),
                 ),
               )
+            else if (_byCar)
+              for (final car in groupByCar(items)) ...[
+                _CarCard(car, showMaster: widget.showMaster),
+                const SizedBox(height: 8),
+              ]
             else
               for (final e in items) ...[
                 _EntryCard(e, showMaster: widget.showMaster),
@@ -218,7 +267,7 @@ class _EntryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text(_when(e.createdAt), style: muted),
+            Text(formatWhen(e.createdAt), style: muted),
             Text('VIN ${e.vin}', style: muted),
             Text('Прошивка ГУ: ${e.firmware}', style: muted),
             Text(
@@ -229,6 +278,88 @@ class _EntryCard extends StatelessWidget {
               ].join(' · '),
               style: muted,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Работы, сгруппированные по VIN; порядок — по последней работе, новые сверху.
+List<List<HistoryEntry>> groupByCar(List<HistoryEntry> newestFirst) {
+  final byVin = <String, List<HistoryEntry>>{};
+  for (final e in newestFirst) {
+    byVin.putIfAbsent(e.vin, () => []).add(e);
+  }
+  return byVin.values.toList();
+}
+
+class _CarCard extends StatelessWidget {
+  const _CarCard(this.jobs, {required this.showMaster});
+
+  /// Работы на одной машине, новые сверху.
+  final List<HistoryEntry> jobs;
+  final bool showMaster;
+
+  @override
+  Widget build(BuildContext context) {
+    final last = jobs.first;
+    final first = jobs.last;
+    const muted = TextStyle(color: NoxColors.metalMid, fontSize: 13);
+    return Card(
+      color: NoxColors.panelHi,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.directions_car, color: NoxColors.metalLight),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'VIN ${last.vin}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Text('работ: ${jobs.length}', style: muted),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(last.model, style: muted),
+            Text(
+              jobs.length == 1
+                  ? formatWhen(last.createdAt)
+                  : 'Первая: ${formatWhen(first.createdAt)} · последняя: ${formatWhen(last.createdAt)}',
+              style: muted,
+            ),
+            const Divider(height: 16),
+            for (final j in jobs)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(
+                      _status(j.status).$3,
+                      size: 14,
+                      color: _status(j.status).$1,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        [
+                          formatWhen(j.createdAt),
+                          j.service,
+                          if (showMaster) j.masterName,
+                          '${j.credits} кр.',
+                        ].join(' · '),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
