@@ -19,6 +19,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:carwarehub_noxdrive/security/release_signature.dart';
 import 'package:crypto/crypto.dart';
 
 Map<String, String> _args(List<String> a) {
@@ -202,6 +203,43 @@ Future<void> main(List<String> argv) async {
     }
   }
 
+  // Подпись выпуска: программа для Windows не ставит обновление без верной подписи.
+  String? signature;
+  final signKey = Platform.environment['RELEASE_SIGNING_KEY'];
+  stdout.writeln('Подпись:');
+  if (signKey == null || signKey.isEmpty) {
+    if (platform == 'windows') {
+      _fail(
+        'нет ключа подписи (переменная RELEASE_SIGNING_KEY). Без подписи мастера не смогут '
+        'установить обновление',
+      );
+    }
+    stdout.writeln('  ! ключа нет, $platform выпускается без подписи');
+  } else {
+    if (await ReleaseSignature.publicKeyOf(signKey) !=
+        ReleaseSignature.publicKeyBase64) {
+      _fail(
+        'ключ подписи не тот, что зашит в программу: мастера отвергнут такое обновление',
+      );
+    }
+    signature = await ReleaseSignature.sign(
+      seedBase64: signKey,
+      platform: platform,
+      version: version,
+      build: build,
+      sha256: sum,
+    );
+    final selfCheck = await ReleaseSignature.verify(
+      signatureBase64: signature,
+      platform: platform,
+      version: version,
+      build: build,
+      sha256: sum,
+    );
+    if (!selfCheck) _fail('подпись не прошла собственную проверку');
+    _ok('выпуск подписан ключом nox.drive');
+  }
+
   if (url == null || key == null) {
     if (dry) {
       stdout.writeln(
@@ -293,6 +331,7 @@ Future<void> main(List<String> argv) async {
           'size_bytes': bytes.length,
           'release_notes': a['notes'],
           'is_mandatory': a['mandatory'] == 'true',
+          'signature': ?signature,
         }),
       ),
       headers: {'Content-Type': 'application/json', 'Prefer': 'return=minimal'},

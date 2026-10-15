@@ -82,6 +82,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
       });
       if (mounted) setState(() => _stage = _Stage.installing);
       await Updater.verify(zip, r.sha256);
+      if (!Updater.isAndroid) await Updater.verifySignature(r);
       if (Updater.isAndroid) {
         // Android ставит APK только через системное окно «Установить».
         await Updater.installApk(zip);

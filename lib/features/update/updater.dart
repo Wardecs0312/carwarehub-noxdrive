@@ -7,6 +7,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/models.dart';
+import '../../security/release_signature.dart';
 
 /// Автообновление программы для Windows.
 ///
@@ -97,6 +98,26 @@ class Updater {
     if (digest.toString() != expected.toLowerCase()) {
       throw UpdateException(
         'Файл обновления повреждён (контрольная сумма не совпала)',
+      );
+    }
+  }
+
+  /// Проверка подписи выпуска ключом администратора (Windows). Вызывается после [verify]:
+  /// контрольная сумма уже совпала с записью в базе, а подпись подтверждает, что саму запись
+  /// создал владелец ключа, а не тот, кто получил доступ к базе.
+  /// Android проверять не нужно: система сама не поставит APK, подписанный чужим ключом.
+  static Future<void> verifySignature(AppRelease r) async {
+    final ok = await ReleaseSignature.verify(
+      signatureBase64: r.signature,
+      platform: 'windows',
+      version: r.version,
+      build: r.buildNumber,
+      sha256: r.sha256 ?? '',
+    );
+    if (!ok) {
+      throw UpdateException(
+        'Обновление не подписано ключом nox.drive и не будет установлено. '
+        'Сообщите администратору',
       );
     }
   }

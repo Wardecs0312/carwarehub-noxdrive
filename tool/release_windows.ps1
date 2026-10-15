@@ -7,6 +7,7 @@
          $env:SUPABASE_URL = 'https://<project>.supabase.co'
          $env:SUPABASE_ANON_KEY = '<publishable/anon key>'
          $env:SUPABASE_SERVICE_KEY = '<service_role key>'
+         $env:RELEASE_SIGNING_KEY = '<ключ подписи выпусков, только из сейфа>'
     3. Папки adb и scrcpy: либо уже лежат в build\windows\x64\runner\Release,
        либо в windows\adb и windows\scrcpy (скрипт скопирует).
 
@@ -34,6 +35,9 @@ if (-not $env:SUPABASE_URL -or -not $env:SUPABASE_ANON_KEY) {
 }
 if (-not $DryRun -and -not $env:SUPABASE_SERVICE_KEY) {
   throw 'Для публикации задайте SUPABASE_SERVICE_KEY (или запустите с -DryRun).'
+}
+if (-not $env:RELEASE_SIGNING_KEY) {
+  throw 'Задайте RELEASE_SIGNING_KEY (ключ подписи выпусков из сейфа): без подписи программа не поставит обновление.'
 }
 
 $match = Select-String -Path 'pubspec.yaml' -Pattern '^version:\s*(\d+\.\d+\.\d+)\+(\d+)'

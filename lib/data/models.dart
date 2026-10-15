@@ -111,6 +111,7 @@ class AppRelease {
     this.releaseNotes,
     this.sha256,
     this.sizeBytes,
+    this.signature,
   });
   final String version;
   final int buildNumber;
@@ -125,6 +126,9 @@ class AppRelease {
   final String? sha256;
   final int? sizeBytes;
 
+  /// Подпись выпуска ключом администратора (Ed25519, base64), см. ReleaseSignature.
+  final String? signature;
+
   factory AppRelease.fromJson(Map<String, dynamic> j) => AppRelease(
     version: str(j['version']),
     buildNumber: intOr(j['build_number']),
@@ -134,5 +138,6 @@ class AppRelease {
     releaseNotes: strOrNull(j['release_notes']),
     sha256: strOrNull(j['sha256'])?.toLowerCase(),
     sizeBytes: j['size_bytes'] == null ? null : intOr(j['size_bytes']),
+    signature: strOrNull(j['signature']),
   );
 }
