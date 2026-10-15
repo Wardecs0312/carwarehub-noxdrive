@@ -42,6 +42,9 @@ class _PackageSetupDialog extends ConsumerStatefulWidget {
 class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
   final List<CustomApk> _apks = [];
 
+  /// Второй шаг: мастер проверяет, что и за сколько будет загружено в автомобиль.
+  bool _confirming = false;
+
   @override
   void initState() {
     super.initState();
@@ -108,133 +111,202 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
                 ],
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Настройка пакета установки',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.service.title,
-                  style: const TextStyle(color: NoxColors.metalMid),
-                ),
-                const SizedBox(height: 22),
-                const _Label('Основной пакет'),
-                preview.when(
-                  data: (p) => Column(
+            child: _confirming && preview.hasValue
+                ? _confirmView(context, preview.requireValue)
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final item in p.items) _MainItem(item),
-                      if (p.items.isEmpty)
-                        const Text('Состав пакета не указан'),
-                      const SizedBox(height: 6),
                       Text(
-                        p.repeat
-                            ? 'Повторная установка для этого VIN бесплатна'
-                            : (p.price > 0
-                                  ? 'Стоимость: ${p.price} кр.'
-                                  : 'Бесплатно'),
-                        style: const TextStyle(
-                          color: NoxColors.metalMid,
-                          fontSize: 12,
-                        ),
+                        'Настройка пакета установки',
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
-                    ],
-                  ),
-                  loading: () => const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: LinearProgressIndicator(),
-                  ),
-                  error: (e, _) => Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: NoxColors.bad,
-                        size: 20,
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.service.title,
+                        style: const TextStyle(color: NoxColors.metalMid),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          e.toString(),
-                          style: const TextStyle(color: NoxColors.bad),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const Divider(height: 1),
-                const SizedBox(height: 18),
-                const _Label('Дополнительные APK мастера'),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    'Список запоминается: добавленные файлы остаются, пока вы их не уберёте',
-                    style: TextStyle(color: NoxColors.metalMid, fontSize: 12),
-                  ),
-                ),
-                Flexible(
-                  child: _apks.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                            'Свои файлы не добавлены',
-                            style: TextStyle(color: NoxColors.metalMid),
-                          ),
-                        )
-                      : ListView(
-                          shrinkWrap: true,
+                      const SizedBox(height: 22),
+                      const _Label('Основной пакет'),
+                      preview.when(
+                        data: (p) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            for (var i = 0; i < _apks.length; i++)
-                              _ApkRow(
-                                apk: _apks[i],
-                                onToggle: (v) => _change(
-                                  () =>
-                                      _apks[i] = _apks[i].copyWith(selected: v),
-                                ),
-                                onRemove: () =>
-                                    _change(() => _apks.removeAt(i)),
+                            for (final item in p.items) _MainItem(item),
+                            if (p.items.isEmpty)
+                              const Text('Состав пакета не указан'),
+                            const SizedBox(height: 6),
+                            Text(
+                              p.repeat
+                                  ? 'Повторная установка для этого VIN бесплатна'
+                                  : (p.price > 0
+                                        ? 'Стоимость: ${p.price} кр.'
+                                        : 'Бесплатно'),
+                              style: const TextStyle(
+                                color: NoxColors.metalMid,
+                                fontSize: 12,
                               ),
+                            ),
                           ],
                         ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    key: const Key('add-apk'),
-                    onPressed: _add,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Добавить свои APK'),
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: LinearProgressIndicator(),
+                        ),
+                        error: (e, _) => Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: NoxColors.bad,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                e.toString(),
+                                style: const TextStyle(color: NoxColors.bad),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      const Divider(height: 1),
+                      const SizedBox(height: 18),
+                      const _Label('Дополнительные APK мастера'),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'Список запоминается: добавленные файлы остаются, пока вы их не уберёте',
+                          style: TextStyle(
+                            color: NoxColors.metalMid,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      Flexible(
+                        child: _apks.isEmpty
+                            ? const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text(
+                                  'Свои файлы не добавлены',
+                                  style: TextStyle(color: NoxColors.metalMid),
+                                ),
+                              )
+                            : ListView(
+                                shrinkWrap: true,
+                                children: [
+                                  for (var i = 0; i < _apks.length; i++)
+                                    _ApkRow(
+                                      apk: _apks[i],
+                                      onToggle: (v) => _change(
+                                        () => _apks[i] = _apks[i].copyWith(
+                                          selected: v,
+                                        ),
+                                      ),
+                                      onRemove: () =>
+                                          _change(() => _apks.removeAt(i)),
+                                    ),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          key: const Key('add-apk'),
+                          onPressed: _add,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Добавить свои APK'),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Отмена'),
+                          ),
+                          const SizedBox(width: 12),
+                          GlowButton(
+                            label: selected == 0
+                                ? 'Начать установку'
+                                : 'Начать установку (+$selected)',
+                            onPressed: preview.hasValue
+                                ? () => setState(() => _confirming = true)
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Отмена'),
-                    ),
-                    const SizedBox(width: 12),
-                    GlowButton(
-                      label: selected == 0
-                          ? 'Начать установку'
-                          : 'Начать установку (+$selected)',
-                      onPressed: preview.hasValue
-                          ? () => Navigator.of(context).pop(List.of(_apks))
-                          : null,
-                    ),
-                  ],
-                ),
-              ],
-            ),
           ),
         ),
       ),
+    );
+  }
+
+  /// Шаг подтверждения: установка начинается только после «Подтвердить загрузку».
+  Widget _confirmView(BuildContext context, PackagePreview p) {
+    final custom = _apks.where((a) => a.selected).toList();
+    final price = p.repeat
+        ? 'бесплатно (повтор на этом автомобиле)'
+        : (p.price > 0 ? '${p.price} кр.' : 'бесплатно');
+    Widget row(String k, String v) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(k, style: const TextStyle(color: NoxColors.metalMid)),
+          ),
+          Expanded(child: Text(v)),
+        ],
+      ),
+    );
+    return Column(
+      key: const Key('confirm-load-view'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Подтвердите загрузку на автомобиль',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 18),
+        row('Услуга', widget.service.title),
+        row('Модель', widget.model.title),
+        row('VIN', widget.vin),
+        row(
+          'Свои APK',
+          custom.isEmpty ? 'нет' : custom.map((a) => a.name).join(', '),
+        ),
+        row('Стоимость', price),
+        const SizedBox(height: 8),
+        const Text(
+          'Не отключайте кабель и не выключайте зажигание до окончания установки.',
+          style: TextStyle(color: NoxColors.warn, fontSize: 12),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              key: const Key('confirm-back'),
+              onPressed: () => setState(() => _confirming = false),
+              child: const Text('Назад'),
+            ),
+            const SizedBox(width: 12),
+            GlowButton(
+              key: const Key('confirm-load'),
+              label: 'Подтвердить загрузку',
+              onPressed: () => Navigator.of(context).pop(List.of(_apks)),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

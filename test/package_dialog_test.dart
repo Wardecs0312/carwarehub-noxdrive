@@ -124,6 +124,37 @@ void main() {
     },
   );
 
+  testWidgets('установка начинается только после «Подтвердить загрузку»', (
+    tester,
+  ) async {
+    final backend = FakeBackend(
+      const JobTicket(jobId: 'j', price: 0, repeat: false, steps: []),
+      const [],
+    );
+    final exec = FakeExecutor();
+    await _open(tester, FakePicker(const []), backend, exec);
+    await tester.tap(find.text('Русификация и установка приложений'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Начать установку'));
+    await tester.pumpAndSettle();
+    expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
+    expect(find.text('LS5A3ABC1NA000123'), findsWidgets);
+    expect(backend.finished, isEmpty, reason: 'ещё ничего не запущено');
+
+    await tester.tap(find.byKey(const Key('confirm-back')));
+    await tester.pumpAndSettle();
+    expect(find.text('Настройка пакета установки'), findsOneWidget);
+
+    await tester.tap(find.text('Начать установку'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-load')));
+    await tester.pumpAndSettle();
+    expect(backend.finished, [
+      true,
+    ], reason: 'установка прошла после подтверждения');
+  });
+
   testWidgets('отмена не запускает установку', (tester) async {
     final exec = FakeExecutor();
     await _open(
