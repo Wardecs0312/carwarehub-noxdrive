@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
@@ -6,6 +7,7 @@ import 'package:carwarehub_noxdrive/data/models.dart';
 import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/jobs/job_models.dart';
 import 'package:carwarehub_noxdrive/security/payload_cipher.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,7 +82,103 @@ Future<CustomApk> _tempApk(
   );
 }
 
+/// Сценарий из одного шага с файлом (скрипт или запись файла) и указанной контрольной суммой.
+Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
+  StepType type,
+  List<int> plain, {
+  String? sha256,
+}) async {
+  final key = List<int>.generate(32, (i) => i + 7);
+  final enc = await PayloadCipher(key).encrypt(plain);
+  final ticket = JobTicket(
+    jobId: 'job-f',
+    price: 0,
+    repeat: false,
+    steps: [
+      JobStep(
+        type: type,
+        title: 'Файл',
+        storagePath: 'x/f.enc',
+        sizeBytes: plain.length,
+        encKey: PayloadCipher(key).keyBase64,
+        sha256: sha256,
+        remotePath: '/data/local/tmp/f.bin',
+      ),
+    ],
+  );
+  final exec = FakeExecutor();
+  final container = ProviderContainer(
+    overrides: [
+      adbExecutorProvider.overrideWithValue(exec),
+      jobBackendProvider.overrideWithValue(FakeBackend(ticket, enc)),
+      appVersionProvider.overrideWith((_) async => '1.0.0+1'),
+      adbStatusProvider.overrideWith(
+        (_) =>
+            Stream.value(const AdbStatus(AdbConnection.connected, serial: 'A')),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.listen(adbStatusProvider, (_, _) {});
+  await container.read(adbStatusProvider.future);
+  return (container, exec);
+}
+
 void main() {
+  test(
+    'скрипт с верной контрольной суммой отправляется на ГУ целиком',
+    () async {
+      final script = utf8.encode('echo ok;' * 50);
+      final (c, exec) = await _setupFileStep(
+        StepType.runScript,
+        script,
+        sha256: crypto.sha256.convert(script).toString(),
+      );
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
+      expect(exec.calls, ['pipe:sh']);
+      expect(exec.received.single, script);
+    },
+  );
+
+  test(
+    'скрипт с неверной контрольной суммой не отправляется на ГУ вообще',
+    () async {
+      final script = utf8.encode('rm -rf /data/local/tmp/x');
+      final (c, exec) = await _setupFileStep(
+        StepType.runScript,
+        script,
+        sha256: '0' * 64,
+      );
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      final s = c.read(jobControllerProvider);
+      expect(s.phase, JobPhase.failed);
+      expect(s.message, contains('целостности'));
+      expect(exec.calls, isEmpty);
+    },
+  );
+
+  test(
+    'файл для записи с неверной контрольной суммой не записывается',
+    () async {
+      final file = List<int>.generate(70000, (i) => i % 256);
+      final (c, exec) = await _setupFileStep(
+        StepType.pushFile,
+        file,
+        sha256: '1' * 64,
+      );
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      expect(c.read(jobControllerProvider).phase, JobPhase.failed);
+      expect(exec.calls, isEmpty);
+    },
+  );
+
   test('обрыв связи в конце не превращает успешную установку в сбой', () async {
     final (c, exec, backend, _) = await _setup(withReboot: false);
     backend.failFinishSuccess = true;

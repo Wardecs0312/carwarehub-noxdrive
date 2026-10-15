@@ -10,6 +10,7 @@ class JobStep {
     this.storagePath,
     this.sizeBytes,
     this.encKey,
+    this.sha256,
     this.cmd,
     this.packages = const [],
     this.grantPermissions = false,
@@ -23,6 +24,10 @@ class JobStep {
   final String? storagePath;
   final int? sizeBytes;
   final String? encKey;
+
+  /// SHA-256 расшифрованного файла (hex, из таблицы payloads). Скрипты и файлы сверяются с ним
+  /// до отправки на головное устройство.
+  final String? sha256;
   final String? cmd;
   final List<String> packages;
 
@@ -59,6 +64,7 @@ class JobStep {
       storagePath: strOrNull(j['storage_path']),
       sizeBytes: (j['size_bytes'] as num?)?.toInt(),
       encKey: strOrNull(j['enc_key']),
+      sha256: strOrNull(j['sha256'])?.toLowerCase(),
       cmd: strOrNull(j['cmd']),
       packages: [for (final p in (j['packages'] as List?) ?? const []) str(p)],
       grantPermissions: boolOr(j['grant']),

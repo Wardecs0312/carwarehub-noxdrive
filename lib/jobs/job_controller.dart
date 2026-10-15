@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -291,13 +292,23 @@ class JobController extends Notifier<JobState> {
           throw JobException('Сценарий повреждён: нет данных файла');
         }
         var done = 0;
-        final plain = PayloadCipher.fromBase64(key)
+        final decrypted = PayloadCipher.fromBase64(key)
             .decrypt(backend.openPayload(path))
             .map((chunk) {
               done += chunk.length;
               report(size == 0 ? 1 : (done / size).clamp(0, 1).toDouble());
               return chunk;
             });
+        // APK идёт потоком: установщик Android сам отвергнет неполный или чужой файл.
+        // Скрипт и файл для записи сначала принимаются целиком и сверяются, иначе при обрыве
+        // на головном устройстве успела бы выполниться (или записаться) только часть.
+        final Stream<List<int>> plain;
+        if (step.type == StepType.installApk) {
+          plain = decrypted;
+        } else {
+          final bytes = await _verifiedPayload(decrypted, size, step.sha256);
+          plain = Stream.value(bytes);
+        }
         final args = switch (step.type) {
           StepType.installApk => [
             'cmd',
@@ -335,6 +346,27 @@ class JobController extends Notifier<JobState> {
         await executor.reboot(serial);
     }
     report(1);
+  }
+
+  /// Принимает расшифрованный файл целиком и сверяет размер и SHA-256 с данными сервера.
+  Future<List<int>> _verifiedPayload(
+    Stream<List<int>> data,
+    int size,
+    String? expectedSha256,
+  ) async {
+    final bytes = <int>[await for (final chunk in data) ...chunk];
+    if (bytes.length != size) {
+      throw JobException(
+        'Файл получен не полностью, на автомобиль ничего не отправлено',
+      );
+    }
+    if (expectedSha256 != null &&
+        crypto.sha256.convert(bytes).toString() != expectedSha256) {
+      throw JobException(
+        'Файл не прошёл проверку целостности, на автомобиль ничего не отправлено',
+      );
+    }
+    return bytes;
   }
 
   /// Команда на ГУ, которая записывает stdin в файл: `cat > '/путь/файл'`.
