@@ -19,6 +19,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _phone = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _tgCode = TextEditingController();
+
+  /// Вход через Telegram ждёт код из бота (nonce этого входа).
+  String? _tgCodeNonce;
   bool _register = false;
   bool _busy = false;
   String? _error;
@@ -93,7 +97,22 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       try {
         // При успехе сессия меняется, и приложение само уходит с экрана входа.
-        if (await telegramPoll(start.nonce)) t.cancel();
+        switch (await telegramPoll(start.nonce)) {
+          case TelegramPoll.pending:
+            break;
+          case TelegramPoll.done:
+            t.cancel();
+          case TelegramPoll.needCode:
+            t.cancel();
+            if (mounted) {
+              setState(() {
+                _tgCodeNonce = start.nonce;
+                _tgCode.clear();
+                _info =
+                    'Бот прислал в Telegram 6-значный код. Введите его здесь.';
+              });
+            }
+        }
       } catch (e) {
         t.cancel();
         if (mounted) {
@@ -110,13 +129,40 @@ class _LoginScreenState extends State<LoginScreen> {
     _tgTimer?.cancel();
     setState(() {
       _tgTimer = null;
+      _tgCodeNonce = null;
       _info = null;
     });
+  }
+
+  /// Завершение входа через Telegram кодом из бота.
+  Future<void> _submitTgCode() async {
+    final nonce = _tgCodeNonce;
+    if (nonce == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await telegramPoll(nonce, code: _tgCode.text.trim());
+    } on TelegramCodeException catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _tgCodeNonce = null;
+          _info = null;
+          _error = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
   void dispose() {
     _tgTimer?.cancel();
+    _tgCode.dispose();
     _name.dispose();
     _phone.dispose();
     _email.dispose();
@@ -126,7 +172,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final waitingTg = _tgTimer?.isActive ?? false;
+    final waitingTg = (_tgTimer?.isActive ?? false) || _tgCodeNonce != null;
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -200,6 +246,32 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: const InputDecoration(labelText: 'Пароль'),
                       onSubmitted: (_) => _submit(),
                     ),
+                    if (_tgCodeNonce != null) ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        key: const Key('tg-code'),
+                        controller: _tgCode,
+                        autofocus: true,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                        decoration: const InputDecoration(
+                          labelText: 'Код из Telegram-бота',
+                          counterText: '',
+                        ),
+                        onSubmitted: (_) => _submitTgCode(),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          key: const Key('tg-code-submit'),
+                          onPressed: _busy ? null : _submitTgCode,
+                          child: const Text('Подтвердить код'),
+                        ),
+                      ),
+                    ],
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),

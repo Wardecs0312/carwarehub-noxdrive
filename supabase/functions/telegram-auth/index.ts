@@ -75,6 +75,25 @@ const newNonce = () => {
 
 const fresh = (createdAt: string) => Date.now() - Date.parse(createdAt) < CODE_TTL_MS;
 
+// Защита от подсунутой ссылки входа (аудит 13.10.2026, B-4): после «Старт» бот присылает 6-значный код,
+// и вход завершается, только когда этот код введён в программе. Ссылку можно подсунуть, а код приходит
+// только в Telegram того, кто входит.
+const MAX_CODE_ATTEMPTS = 5;
+// Старый вход без кода (программы до 2.0.15) разрешён на переходный период, кроме администраторов.
+// Выключить полностью: секрет TELEGRAM_LEGACY_LOGIN=off.
+const legacyLoginAllowed = () => (Deno.env.get("TELEGRAM_LEGACY_LOGIN") ?? "on").toLowerCase() !== "off";
+
+const newLoginCode = () => {
+  const b = new Uint32Array(1);
+  crypto.getRandomValues(b);
+  return String(b[0] % 1_000_000).padStart(6, "0");
+};
+
+async function codeHash(nonce: string, code: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${nonce}:${code}`));
+  return Array.from(new Uint8Array(d), (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 // Telegram ID администраторов (таблица admins или masters.role = 'admin').
 async function adminChats(): Promise<number[]> {
   const { data: rows } = await admin.from("admins").select("user_id");
@@ -186,27 +205,58 @@ async function onTelegramUpdate(update: any) {
     await reply(msg.chat.id, "Код входа устарел. Нажмите «Войти через Telegram» в программе ещё раз.");
     return;
   }
+  const code = newLoginCode();
   await admin.from("telegram_logins").update({
     telegram_id: from.id,
     telegram_username: from.username ?? null,
     telegram_name: [from.first_name, from.last_name].filter(Boolean).join(" "),
     confirmed_at: new Date().toISOString(),
+    code_hash: await codeHash(nonce, code),
+    code_attempts: 0,
   }).eq("nonce", nonce);
   const { data: master } = await admin.from("masters").select("status").eq("telegram_id", from.id).maybeSingle();
+  if (master?.status === "blocked") {
+    await reply(msg.chat.id, "Доступ закрыт администратором.");
+    return;
+  }
   await reply(
     msg.chat.id,
-    master?.status === "active"
-      ? "Вход подтверждён. Вернитесь в программу nox.drive."
-      : master?.status === "blocked"
-      ? "Доступ закрыт администратором."
-      : "Заявка на регистрацию отправлена администратору. Как только он её одобрит, я пришлю сообщение, и можно будет работать.",
+    `Код входа в nox.drive: ${code}\n\n` +
+      "Введите его в программе на своём компьютере. Никому не сообщайте этот код, даже «поддержке». " +
+      "Если вы сейчас не нажимали «Войти через Telegram» в программе nox.drive, ничего не вводите: " +
+      "кто-то пытается войти под вашим аккаунтом." +
+      (master?.status === "active"
+        ? ""
+        : "\n\nПосле входа заявка на регистрацию уйдёт администратору. Как только он её одобрит, я пришлю сообщение."),
   );
 }
 
-async function poll(nonce: string, req: Request) {
+async function poll(nonce: string, req: Request, proto: number, code: unknown) {
   const { data: row } = await admin.from("telegram_logins").select("*").eq("nonce", nonce).maybeSingle();
   if (!row || row.consumed_at) return json({ status: "invalid" });
   if (!row.confirmed_at) return json({ status: fresh(row.created_at) ? "pending" : "expired" });
+  // Подтверждённый, но не забранный вовремя код тоже устаревает.
+  if (!fresh(row.created_at)) return json({ status: "expired" });
+
+  if (proto >= 2) {
+    // Новый вход: нужен код, который бот прислал в Telegram.
+    if (typeof code !== "string" || !/^[0-9]{6}$/.test(code)) return json({ status: "need_code" });
+    if ((row.code_attempts ?? 0) >= MAX_CODE_ATTEMPTS) return json({ status: "invalid" });
+    if (!row.code_hash || row.code_hash !== await codeHash(nonce, code)) {
+      const attempts = (row.code_attempts ?? 0) + 1;
+      await admin.from("telegram_logins").update({ code_attempts: attempts }).eq("nonce", nonce);
+      if (attempts >= MAX_CODE_ATTEMPTS) {
+        await admin.from("telegram_logins").update({ consumed_at: new Date().toISOString() }).eq("nonce", nonce);
+        return json({ status: "invalid" });
+      }
+      return json({ status: "bad_code", attempts_left: MAX_CODE_ATTEMPTS - attempts });
+    }
+  } else {
+    // Старый вход без кода: только на переходный период и никогда для администраторов.
+    if (!legacyLoginAllowed() || (await isAdminTelegram(row.telegram_id))) {
+      return json({ status: "update_required" });
+    }
+  }
 
   // Мастер с этим Telegram уже есть? Иначе регистрируем нового (статус pending через триггер).
   const email = `tg-${row.telegram_id}@telegram.nox.drive`;
@@ -263,11 +313,15 @@ Deno.serve(async (req) => {
     const nonce = typeof body.nonce === "string" && /^[0-9a-f]{32,128}$/.test(body.nonce)
       ? body.nonce
       : newNonce();
+    // Старые коды входа не копятся: всё, что старше суток, удаляется.
+    await admin.from("telegram_logins").delete().lt("created_at", new Date(Date.now() - 86_400_000).toISOString());
     const { error } = await admin.from("telegram_logins").insert({ nonce });
     if (error) return json({ error: "DB_ERROR" }, 500);
     return json({ nonce, link: `https://t.me/${botUsername}?start=${nonce}` });
   }
-  if (body.action === "poll" && typeof body.nonce === "string") return poll(body.nonce, req);
+  if (body.action === "poll" && typeof body.nonce === "string") {
+    return poll(body.nonce, req, Number(body.proto) || 1, body.code);
+  }
   if (body.action === "notify_signup") return notifySignup(body.email, req);
   if (body.action === "setup_webhook") return setupWebhook(req);
   return json({ error: "BAD_REQUEST" }, 400);

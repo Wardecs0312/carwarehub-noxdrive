@@ -114,22 +114,53 @@ Future<Map<String, dynamic>> _telegram(Map<String, dynamic> body) async {
   }
 }
 
-/// Один опрос: false, пока мастер не нажал «Старт» в боте; при подтверждении входит сам и возвращает true.
-/// Бросает исключение, если код устарел.
-Future<bool> telegramPoll(String nonce) async {
-  final d = await _telegram({'action': 'poll', 'nonce': nonce});
+/// Результат одного опроса входа через Telegram.
+enum TelegramPoll {
+  /// Мастер ещё не нажал «Старт» в боте.
+  pending,
+
+  /// Бот прислал код в Telegram: его нужно ввести в программе.
+  needCode,
+
+  /// Вход выполнен, сессия уже сменилась.
+  done,
+}
+
+/// Неверный код из бота: можно ввести ещё раз.
+class TelegramCodeException implements Exception {
+  TelegramCodeException(this.attemptsLeft);
+  final int attemptsLeft;
+  @override
+  String toString() =>
+      'Неверный код. Проверьте сообщение от бота (осталось попыток: $attemptsLeft)';
+}
+
+/// Один опрос входа через Telegram. Вход завершается только с кодом, который бот прислал
+/// в Telegram (защита от подсунутой ссылки входа). Бросает исключение, если код устарел.
+Future<TelegramPoll> telegramPoll(String nonce, {String? code}) async {
+  final d = await _telegram({
+    'action': 'poll',
+    'nonce': nonce,
+    'proto': 2,
+    'code': ?code,
+  });
   switch (str(d['status'])) {
     case 'pending':
-      return false;
+      return TelegramPoll.pending;
+    case 'need_code':
+      return TelegramPoll.needCode;
     case 'ok':
       await Supabase.instance.client.auth.verifyOTP(
         type: OtpType.magiclink,
         tokenHash: requireStr(d, 'token_hash', 'Вход через Telegram'),
       );
-      return true;
+      return TelegramPoll.done;
+    case 'bad_code':
+      throw TelegramCodeException(intOr(d['attempts_left']));
     case 'expired' || 'invalid':
       throw Exception(
-        'Код входа устарел. Нажмите «Войти через Telegram» ещё раз',
+        'Код входа устарел или введён неверно слишком много раз. '
+        'Нажмите «Войти через Telegram» ещё раз',
       );
     default:
       throw Exception(
