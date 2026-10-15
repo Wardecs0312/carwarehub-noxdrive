@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
@@ -183,6 +184,8 @@ class _LoginScreenState extends State<LoginScreen> {
             alignment: Alignment.center,
           ),
           Container(color: Colors.black.withValues(alpha: 0.55)),
+          // Версия программы: мастер и поддержка сразу видят, обновилась ли программа.
+          const Positioned(right: 12, bottom: 8, child: _AppVersionLabel()),
           Center(
             // На телефоне клавиатура съедает полэкрана, поэтому форма прокручивается.
             child: SingleChildScrollView(
@@ -320,4 +323,23 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
+
+/// «версия 2.0.18» в углу экрана входа.
+class _AppVersionLabel extends StatelessWidget {
+  const _AppVersionLabel();
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PackageInfo>(
+    future: PackageInfo.fromPlatform(),
+    builder: (context, snap) {
+      final info = snap.data;
+      if (info == null) return const SizedBox.shrink();
+      return Text(
+        'версия ${info.version}',
+        key: const Key('login-version'),
+        style: const TextStyle(color: NoxColors.metalMid, fontSize: 12),
+      );
+    },
+  );
 }
