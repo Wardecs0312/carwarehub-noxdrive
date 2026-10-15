@@ -322,7 +322,7 @@ exit /b 0
     log('apply: replaced $n files, restarting');
     await Process.start(
       Platform.resolvedExecutable,
-      const [],
+      const ['--after-update'],
       workingDirectory: dst.path,
       mode: ProcessStartMode.detached,
     );
