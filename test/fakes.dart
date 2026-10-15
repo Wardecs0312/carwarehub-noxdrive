@@ -1,5 +1,6 @@
 import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
 import 'package:carwarehub_noxdrive/jobs/apk_picker.dart';
+import 'package:carwarehub_noxdrive/jobs/custom_apk_store.dart';
 import 'package:carwarehub_noxdrive/jobs/job_backend.dart';
 import 'package:carwarehub_noxdrive/jobs/job_models.dart';
 
@@ -125,4 +126,20 @@ class FakePicker implements ApkPicker {
 
   @override
   Future<List<CustomApk>> pick() async => files;
+}
+
+/// Список своих APK мастера в памяти (вместо файла в %APPDATA%).
+class MemoryApkStore implements CustomApkStore {
+  MemoryApkStore([List<CustomApk>? initial]) : saved = [...?initial];
+  List<CustomApk> saved;
+  int saves = 0;
+
+  @override
+  Future<List<CustomApk>> load() async => List.of(saved);
+
+  @override
+  Future<void> save(List<CustomApk> apks) async {
+    saves++;
+    saved = List.of(apks);
+  }
 }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../jobs/apk_picker.dart';
+import '../../jobs/custom_apk_store.dart';
 import '../../jobs/job_controller.dart';
 import '../../jobs/job_models.dart';
 import '../shell/glow_button.dart';
@@ -41,10 +42,30 @@ class _PackageSetupDialog extends ConsumerStatefulWidget {
 class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
   final List<CustomApk> _apks = [];
 
+  @override
+  void initState() {
+    super.initState();
+    // Свои APK, добавленные раньше, остаются в списке вместе с галочками.
+    ref.read(customApkStoreProvider).load().then((saved) {
+      if (!mounted) return;
+      setState(() {
+        for (final a in saved) {
+          if (_apks.every((e) => e.path != a.path)) _apks.add(a);
+        }
+      });
+    });
+  }
+
+  /// Изменение списка сразу запоминается на компьютере мастера.
+  void _change(VoidCallback fn) {
+    setState(fn);
+    ref.read(customApkStoreProvider).save(List.of(_apks));
+  }
+
   Future<void> _add() async {
     final picked = await ref.read(apkPickerProvider).pick();
     if (!mounted) return;
-    setState(() {
+    _change(() {
       for (final a in picked) {
         if (_apks.every((e) => e.path != a.path)) _apks.add(a);
       }
@@ -148,6 +169,13 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
                 const Divider(height: 1),
                 const SizedBox(height: 18),
                 const _Label('Дополнительные APK мастера'),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    'Список запоминается: добавленные файлы остаются, пока вы их не уберёте',
+                    style: TextStyle(color: NoxColors.metalMid, fontSize: 12),
+                  ),
+                ),
                 Flexible(
                   child: _apks.isEmpty
                       ? const Padding(
@@ -163,12 +191,12 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
                             for (var i = 0; i < _apks.length; i++)
                               _ApkRow(
                                 apk: _apks[i],
-                                onToggle: (v) => setState(
+                                onToggle: (v) => _change(
                                   () =>
                                       _apks[i] = _apks[i].copyWith(selected: v),
                                 ),
                                 onRemove: () =>
-                                    setState(() => _apks.removeAt(i)),
+                                    _change(() => _apks.removeAt(i)),
                               ),
                           ],
                         ),

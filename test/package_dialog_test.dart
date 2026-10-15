@@ -1,6 +1,7 @@
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:carwarehub_noxdrive/jobs/apk_picker.dart';
+import 'package:carwarehub_noxdrive/jobs/custom_apk_store.dart';
 import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/jobs/job_models.dart';
 import 'package:carwarehub_noxdrive/main.dart';
@@ -14,8 +15,9 @@ Future<void> _open(
   WidgetTester tester,
   FakePicker picker,
   FakeBackend backend,
-  FakeExecutor exec,
-) async {
+  FakeExecutor exec, {
+  MemoryApkStore? store,
+}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -28,6 +30,7 @@ Future<void> _open(
           ),
         ),
         apkPickerProvider.overrideWithValue(picker),
+        customApkStoreProvider.overrideWithValue(store ?? MemoryApkStore()),
         jobBackendProvider.overrideWithValue(backend),
         adbExecutorProvider.overrideWithValue(exec),
         appVersionProvider.overrideWith((_) async => '1.0.0+1'),
@@ -87,6 +90,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Other.apk'), findsNothing);
       expect(find.text('Начать установку'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'свои APK запоминаются: при следующем открытии окна они уже в списке',
+    (tester) async {
+      final store = MemoryApkStore([a, b.copyWith(selected: false)]);
+      final backend = FakeBackend(
+        const JobTicket(jobId: 'j', price: 0, repeat: false, steps: []),
+        const [],
+      );
+      await _open(
+        tester,
+        FakePicker(const []),
+        backend,
+        FakeExecutor(),
+        store: store,
+      );
+
+      await tester.tap(find.text('Русификация и установка приложений'));
+      await tester.pumpAndSettle();
+
+      // Добавлены раньше: оба в списке, галочки как были.
+      expect(find.text('YandexNavigator.apk'), findsOneWidget);
+      expect(find.text('Other.apk'), findsOneWidget);
+      expect(find.text('Начать установку (+1)'), findsOneWidget);
+
+      // Удаление тоже запоминается.
+      await tester.tap(find.byIcon(Icons.close).last);
+      await tester.pumpAndSettle();
+      expect(store.saved.map((x) => x.name), ['YandexNavigator.apk']);
     },
   );
 
