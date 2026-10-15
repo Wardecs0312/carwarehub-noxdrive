@@ -162,7 +162,24 @@ class JobController extends Notifier<JobState> {
         );
         report(0);
         log.writeln('[${index + 1}/${steps.length}] $title');
-        await _runStep(step, adb.serial!, executor, backend, report, log);
+        try {
+          await _runStep(step, adb.serial!, executor, backend, report, log);
+        } catch (e) {
+          // ГУ на секунду пропало из ADB (кабель, сон ГУ): ждём его и повторяем шаг один раз.
+          if (!isDeviceLost(e) || step.type == StepType.reboot) rethrow;
+          log.writeln('ГУ пропало из ADB, жду подключения: $e');
+          state = state.copyWith(
+            stepTitle: 'Ожидание подключения автомобиля...',
+          );
+          if (!await executor.waitForDevice(adb.serial!, _deviceWait)) {
+            throw AdbException(
+              'Автомобиль отключился и не вернулся за ${_deviceWait.inSeconds} секунд. '
+              'Проверьте USB-кабель и запустите услугу ещё раз',
+            );
+          }
+          report(0);
+          await _runStep(step, adb.serial!, executor, backend, report, log);
+        }
       }
 
       // 1. Основной пакет из облака
@@ -400,6 +417,9 @@ class JobController extends Notifier<JobState> {
     }
   }
 }
+
+/// Сколько ждать, пока ГУ снова появится в ADB после обрыва.
+const _deviceWait = Duration(seconds: 60);
 
 final jobControllerProvider = NotifierProvider<JobController, JobState>(
   JobController.new,

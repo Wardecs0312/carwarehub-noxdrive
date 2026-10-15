@@ -23,7 +23,23 @@ abstract class AdbExecutor {
   );
 
   Future<void> reboot(String serial);
+
+  /// Ждёт, пока ГУ снова появится в ADB. false, если не появилось за [timeout].
+  Future<bool> waitForDevice(String serial, Duration timeout);
 }
+
+/// Удалась ли команда `adb exec-in`. Важно: exec-in не возвращает вывод команды на ГУ,
+/// поэтому при успешной установке APK ответ пустой. Ошибкой считается только ненулевой код
+/// или явный отказ (`Failure [...]`, исключение, `Error:` в начале сообщения).
+bool pipeFailed(int exitCode, String output) =>
+    exitCode != 0 ||
+    RegExp(r'Failure|Exception|^\s*Error:', multiLine: true).hasMatch(output);
+
+/// ГУ пропало из ADB (кабель, сон, перезапуск службы ADB на ГУ).
+bool isDeviceLost(Object e) => RegExp(
+  r"device '.*' not found|device offline|no devices/emulators found|device not found",
+  caseSensitive: false,
+).hasMatch('$e');
 
 class AdbException implements Exception {
   AdbException(this.message);
@@ -56,6 +72,9 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 
   @override
   Future<void> reboot(String serial) async => _fail();
+
+  @override
+  Future<bool> waitForDevice(String serial, Duration timeout) async => false;
 }
 
 /// Реализация через adb.exe. Процессы запускаются без окна консоли:
@@ -139,14 +158,7 @@ class ProcessAdbExecutor implements AdbExecutor {
     await outSub.cancel();
     await errSub.cancel();
     final text = out.toString();
-    // adb exec-in не всегда передаёт код выхода команды на ГУ, поэтому смотрим и на текст.
-    // Установка APK обязана вывести Success. Для остальных команд ошибкой считаем только
-    // явные признаки сбоя, а не любое слово «Error»: оно бывает и в обычном выводе.
-    final isInstall = remoteArgs.contains('install');
-    final failed =
-        code != 0 ||
-        RegExp(r'Failure|Exception|\bError:').hasMatch(text) ||
-        (isInstall && !text.contains('Success'));
+    final failed = pipeFailed(code, text);
     if (failed) {
       throw AdbException(
         text.trim().isEmpty ? 'Ошибка выполнения (код $code)' : text.trim(),
@@ -159,6 +171,20 @@ class ProcessAdbExecutor implements AdbExecutor {
     final r = await _run(serial, ['reboot']);
     if (r.exitCode != 0) {
       throw AdbException('Не удалось перезагрузить: ${r.stderr}'.trim());
+    }
+  }
+
+  @override
+  Future<bool> waitForDevice(String serial, Duration timeout) async {
+    try {
+      final r = await runWithTimeout(_adb, [
+        '-s',
+        serial,
+        'wait-for-device',
+      ], timeout);
+      return r.exitCode == 0;
+    } on TimeoutException {
+      return false;
     }
   }
 }

@@ -126,6 +126,35 @@ Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
 
 void main() {
   test(
+    'ГУ на секунду пропало из ADB: программа ждёт его и повторяет шаг',
+    () async {
+      final (c, exec, _, apk) = await _setup(withReboot: false);
+      exec.loseDeviceTimes = 1;
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      final s = c.read(jobControllerProvider);
+      expect(s.phase, JobPhase.success, reason: s.message);
+      expect(exec.waits, 1);
+      expect(exec.received.single, apk);
+    },
+  );
+
+  test(
+    'ГУ пропало и не вернулось: понятная ошибка, без бесконечных повторов',
+    () async {
+      final (c, exec, _, _) = await _setup(withReboot: false);
+      exec.loseDeviceTimes = 5;
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      final s = c.read(jobControllerProvider);
+      expect(s.phase, JobPhase.failed);
+      expect(exec.waits, lessThanOrEqualTo(2));
+    },
+  );
+
+  test(
     'скрипт с верной контрольной суммой отправляется на ГУ целиком',
     () async {
       final script = utf8.encode('echo ok;' * 50);

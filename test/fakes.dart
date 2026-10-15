@@ -15,6 +15,12 @@ class FakeExecutor implements AdbExecutor {
   /// Команды shell, которые завершатся ошибкой.
   final failShell = <String>{};
 
+  /// Столько первых вызовов pipe завершатся так, будто ГУ пропало из ADB.
+  int loseDeviceTimes = 0;
+
+  /// Сколько раз программа ждала возвращения ГУ.
+  int waits = 0;
+
   @override
   Future<DeviceInfo> readDeviceInfo(String serial) async =>
       DeviceInfo(build: 'CHANGAN.Q05.1.0', model: 'Q05', serial: serial);
@@ -33,6 +39,10 @@ class FakeExecutor implements AdbExecutor {
     Stream<List<int>> data,
   ) async {
     calls.add('pipe:${remoteArgs.join(' ')}');
+    if (loseDeviceTimes > 0) {
+      loseDeviceTimes--;
+      throw AdbException("error: device '$serial' not found");
+    }
     final bytes = [await for (final c in data) ...c];
     received.add(bytes);
     if (failSizes.contains(bytes.length)) {
@@ -42,6 +52,12 @@ class FakeExecutor implements AdbExecutor {
 
   @override
   Future<void> reboot(String serial) async => calls.add('reboot');
+
+  @override
+  Future<bool> waitForDevice(String serial, Duration timeout) async {
+    waits++;
+    return true;
+  }
 }
 
 class FakeBackend implements JobBackend {

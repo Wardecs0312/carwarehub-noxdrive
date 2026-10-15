@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:carwarehub_noxdrive/adb/adb_client.dart';
+import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,24 @@ class _FakeClient implements AdbClient {
 }
 
 void main() {
+  group('pipeFailed: как понимать ответ adb exec-in', () {
+    // adb exec-in не возвращает вывод команды на ГУ: при успешной установке ответ пустой.
+    test('пустой ответ и код 0: успех (так выглядит любая установка APK)', () {
+      expect(pipeFailed(0, ''), isFalse);
+    });
+    test('Success: успех', () => expect(pipeFailed(0, 'Success'), isFalse));
+    test('явный отказ установщика: ошибка', () {
+      expect(
+        pipeFailed(0, 'Failure [INSTALL_FAILED_VERSION_DOWNGRADE]'),
+        isTrue,
+      );
+    });
+    test('ненулевой код: ошибка', () => expect(pipeFailed(1, ''), isTrue));
+    test('слово error в обычном выводе не ошибка', () {
+      expect(pipeFailed(0, 'loading error_icon.png'), isFalse);
+    });
+  });
+
   test(
     'зависший процесс убивается по таймауту, а не остаётся в системе',
     () async {
