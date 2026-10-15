@@ -51,6 +51,14 @@ class _FakeRepo extends AdminRepository {
   Future<void> topUp(String masterId, int amount) async =>
       topUps.add((masterId, amount));
 
+  final adjusts = <(String, int, String)>[];
+
+  @override
+  Future<int> adjustCredits(String masterId, int amount, String reason) async {
+    adjusts.add((masterId, amount, reason));
+    return 100 + amount;
+  }
+
   @override
   Future<List<RefundRow>> pendingRefunds() async => [
     RefundRow.fromJson({
@@ -95,17 +103,42 @@ Future<_FakeRepo> _pump(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('мастера с балансом, пополнение', (tester) async {
+  Future<void> credits(
+    WidgetTester tester,
+    String amount,
+    String reason,
+    String button,
+  ) async {
+    await tester.tap(find.byKey(const Key('credits-m1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('credits-amount')), amount);
+    await tester.enterText(find.byKey(const Key('credits-reason')), reason);
+    await tester.tap(find.byKey(Key(button)));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('кредиты: начисление с причиной', (tester) async {
     final repo = await _pump(tester);
     expect(find.textContaining('Иван', findRichText: true), findsOneWidget);
     expect(find.text('100 кр.'), findsOneWidget);
+    await credits(tester, '50', 'оплата наличными', 'credits-plus');
+    expect(repo.adjusts, [('m1', 50, 'оплата наличными')]);
+    expect(
+      find.textContaining('Начислено 50 кр. Баланс: 150 кр.'),
+      findsOneWidget,
+    );
+  });
 
-    await tester.tap(find.byTooltip('Пополнить баланс').first);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '50');
-    await tester.tap(find.text('Пополнить'));
-    await tester.pumpAndSettle();
-    expect(repo.topUps, [('m1', 50)]);
+  testWidgets('кредиты: списание с причиной', (tester) async {
+    final repo = await _pump(tester);
+    await credits(tester, '30', 'ошибочное начисление', 'credits-minus');
+    expect(repo.adjusts, [('m1', -30, 'ошибочное начисление')]);
+  });
+
+  testWidgets('кредиты: не число ничего не меняет', (tester) async {
+    final repo = await _pump(tester);
+    await credits(tester, 'abc', 'тест', 'credits-plus');
+    expect(repo.adjusts, isEmpty);
   });
 
   testWidgets('запрос трансляции: все источники по умолчанию', (tester) async {

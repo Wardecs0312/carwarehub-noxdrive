@@ -38,7 +38,10 @@ const asUser = async (id, fn) => {
 const newMaster = async (email) => {
   const id = (await db.query(`insert into auth.users (email, raw_user_meta_data) values ($1, '{"via":"email"}') returning id`, [email])).rows[0].id;
   await db.query(`update masters set status = 'active' where id = $1`, [id]);
-  await db.query(`update master_balance set credits = 100 where master_id = $1`, [id]);
+  await db.transaction(async (tx) => {
+    await tx.query(`update master_balance set credits = 100 where master_id = $1`, [id]);
+    await tx.query(`insert into balance_ledger (master_id, amount, reason) values ($1, 100, 'topup')`, [id]);
+  });
   return id;
 };
 
@@ -87,5 +90,9 @@ const anonDenied = async (sql) => {
 check('anon не может вызвать service_charge', await anonDenied(`select * from service_charge('${VIN}', 1, 1, 'x')`));
 check('anon не может вызвать start_job', await anonDenied(`select start_job('${VIN}', 1, 1, 'v', '{}'::jsonb)`));
 
+await db.query(`insert into master_prices (master_id, group_code, price_credits) values ($1, $2, 2)`, [B, svc.price_group]);
+check('особая цена мастера B: 2 вместо 4', (await preview(B, dev('HU-999'))).price === 2);
+check('мастер A без особой цены: 4', (await preview(A, dev('HU-998'))).price === 4);
+check('повтор на той же машине для B всё равно бесплатно', (await preview(B, dev('HU-111'))).price === 0);
 console.log(failed ? `\nПРОВАЛЕНО: ${failed}` : '\nВСЁ ПРОЙДЕНО');
 process.exit(failed ? 1 : 0);

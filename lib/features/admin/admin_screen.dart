@@ -343,9 +343,10 @@ class _MastersTab extends ConsumerWidget {
               ),
             ),
             IconButton(
-              tooltip: 'Пополнить баланс',
+              key: Key('credits-${m.id}'),
+              tooltip: 'Кредиты: начислить или списать',
               icon: const Icon(Icons.add_card),
-              onPressed: () => _topUp(context, ref, m),
+              onPressed: () => _adjustCredits(context, ref, m),
             ),
             IconButton(
               tooltip: 'Запросить трансляцию',
@@ -392,37 +393,81 @@ class _MastersTab extends ConsumerWidget {
     }
   }
 
-  Future<void> _topUp(BuildContext context, WidgetRef ref, MasterRow m) async {
-    final ctrl = TextEditingController();
-    final amount = await showDialog<int>(
+  /// Начислить или списать кредиты мастеру. Причина обязательна и попадает в журнал.
+  Future<void> _adjustCredits(
+    BuildContext context,
+    WidgetRef ref,
+    MasterRow m,
+  ) async {
+    final amountCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    final signed = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Пополнить: ${m.name}'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Кредиты'),
+        title: Text('Кредиты: ${m.name}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Сейчас на балансе: ${m.credits} кр.'),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('credits-amount'),
+              controller: amountCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Сколько кредитов'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('credits-reason'),
+              controller: reasonCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Причина (видна в журнале)',
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Отмена'),
           ),
+          OutlinedButton(
+            key: const Key('credits-minus'),
+            onPressed: () {
+              final n = int.tryParse(amountCtrl.text.trim());
+              Navigator.pop(ctx, n == null || n <= 0 ? null : -n);
+            },
+            child: const Text('Списать'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text.trim())),
-            child: const Text('Пополнить'),
+            key: const Key('credits-plus'),
+            onPressed: () {
+              final n = int.tryParse(amountCtrl.text.trim());
+              Navigator.pop(ctx, n == null || n <= 0 ? null : n);
+            },
+            child: const Text('Начислить'),
           ),
         ],
       ),
     );
-    if (amount == null || amount <= 0 || !context.mounted) return;
+    if (signed == null || !context.mounted) return;
     try {
-      await ref.read(adminRepositoryProvider).topUp(m.id, amount);
+      final now = await ref
+          .read(adminRepositoryProvider)
+          .adjustCredits(m.id, signed, reasonCtrl.text);
       ref.invalidate(adminMastersProvider);
-      if (context.mounted) _toast(context, 'Начислено $amount кр.');
+      if (context.mounted) {
+        _toast(
+          context,
+          '${signed > 0 ? 'Начислено' : 'Списано'} ${signed.abs()} кр. Баланс: $now кр.',
+        );
+      }
     } catch (e) {
-      if (context.mounted) _toast(context, 'Не удалось: $e');
+      if (context.mounted) {
+        _toast(context, e.toString().replaceFirst('Exception: ', ''));
+      }
     }
   }
 

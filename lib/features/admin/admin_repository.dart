@@ -127,6 +127,32 @@ class AdminRepository {
     params: {'p_master': masterId, 'p_amount': amount},
   );
 
+  /// Начислить (amount > 0) или списать (amount < 0) кредиты с причиной. Возвращает новый баланс.
+  /// Причина записывается в журнал, баланс не уходит в минус.
+  Future<int> adjustCredits(String masterId, int amount, String reason) async {
+    try {
+      final r = await _db.rpc(
+        'admin_adjust_credits',
+        params: {
+          'p_master': masterId,
+          'p_amount': amount,
+          'p_reason': reason.trim(),
+        },
+      );
+      return (r as num).toInt();
+    } on PostgrestException catch (e) {
+      throw Exception(switch (e.message) {
+        final m when m.contains('NOT_ENOUGH_CREDITS') =>
+          'Нельзя списать больше, чем есть на балансе',
+        final m when m.contains('REASON_REQUIRED') =>
+          'Укажите причину (от 3 символов)',
+        final m when m.contains('BAD_AMOUNT') => 'Неверная сумма',
+        final m when m.contains('FORBIDDEN') => 'Только для администратора',
+        final m => m,
+      });
+    }
+  }
+
   /// Новое имя (ник) мастера или самого администратора, 1–60 символов.
   Future<void> renameMaster(String masterId, String name) => _db.rpc(
     'admin_set_master_name',
