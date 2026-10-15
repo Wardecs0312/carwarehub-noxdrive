@@ -16,6 +16,7 @@ import 'features/home/home_screen.dart';
 import 'features/stream/stream_banner.dart';
 import 'features/update/update_ui.dart';
 import 'features/update/updater.dart';
+import 'jobs/job_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,7 +62,12 @@ class _AppGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final update = ref.watch(updateProvider).value;
-    if (update != null && update.isMandatory) {
+    // Обязательное обновление не прерывает услугу, которая уже идёт: экран обновления
+    // появится, когда она закончится.
+    final jobRunning =
+        ref.watch(jobControllerProvider.select((j) => j.phase)) ==
+        JobPhase.running;
+    if (update != null && update.isMandatory && !jobRunning) {
       return UpdateRequiredScreen(update);
     }
 

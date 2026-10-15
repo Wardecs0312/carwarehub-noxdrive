@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -5,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/env.dart';
+import 'auth_repository.dart';
 import 'models.dart';
 
 /// Загружает каталог моделей, услуг и информацию об обновлении из Supabase.
@@ -203,6 +206,15 @@ final myPricesProvider = FutureProvider<Map<String, int>>((ref) async {
   }
 });
 
-final updateProvider = FutureProvider(
-  (ref) => ref.watch(catalogRepositoryProvider).availableUpdate(),
-);
+/// Как часто программа сама перепроверяет обновления, пока открыта.
+const updateRecheckInterval = Duration(minutes: 30);
+
+/// Доступное обновление. Список версий виден только вошедшим, поэтому проверка повторяется
+/// после входа и смены аккаунта (иначе новый мастер не увидит обязательное обновление до
+/// перезапуска), а также раз в [updateRecheckInterval], пока программа открыта.
+final updateProvider = FutureProvider<AppRelease?>((ref) {
+  ref.watch(sessionProvider.select((s) => s.value?.user.id));
+  final timer = Timer(updateRecheckInterval, ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+  return ref.watch(catalogRepositoryProvider).availableUpdate();
+});
