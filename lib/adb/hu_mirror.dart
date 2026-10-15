@@ -40,21 +40,61 @@ class HuMirror {
       // scrcpy работает через тот же adb, что и программа: второй сервер adb не запускается.
       environment: {'ADB': resolveAdbPath()},
     );
-    // Вывод scrcpy не нужен, но его надо вычитывать, иначе процесс встанет на заполненном буфере.
-    unawaited(p.stdout.drain<void>());
-    unawaited(p.stderr.drain<void>());
-    // Если scrcpy сразу упал (нет ГУ, нет разрешения), сообщаем причину.
+    // Вывод scrcpy вычитывается (иначе процесс встанет на заполненном буфере) и запоминается:
+    // если scrcpy упадёт, его последние строки и есть причина.
+    final out = StringBuffer();
+    void keep(String chunk) {
+      out.write(chunk);
+      if (out.length > 4000) {
+        final tail = out.toString().substring(out.length - 2000);
+        out
+          ..clear()
+          ..write(tail);
+      }
+    }
+
+    final outDone = p.stdout
+        .transform(const SystemEncoding().decoder)
+        .listen(keep)
+        .asFuture<void>();
+    final errDone = p.stderr
+        .transform(const SystemEncoding().decoder)
+        .listen(keep)
+        .asFuture<void>();
+    // Если scrcpy сразу упал (нет ГУ, кодек, разрешение), сообщаем его собственную причину.
     final early = await p.exitCode.timeout(
-      const Duration(seconds: 2),
+      const Duration(seconds: 3),
       onTimeout: () => -1,
     );
     if (early != -1) {
-      throw HuMirrorException('Не удалось открыть экран ГУ (код $early)');
+      await Future.wait([outDone, errDone])
+          .timeout(const Duration(seconds: 1), onTimeout: () => const []);
+      throw HuMirrorException(
+        'scrcpy не запустился (код $early): ${lastLines(out.toString())}',
+      );
     }
     return HuMirror._(p);
   }
 
   void stop() => _process.kill();
+}
+
+/// Последние осмысленные строки вывода scrcpy (там ошибка), не длиннее 300 символов.
+String lastLines(String output) {
+  final lines = output
+      .split(RegExp(r'\r?\n'))
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  final errors = lines.where(
+    (l) => l.startsWith('ERROR') || l.contains('rror'),
+  );
+  final picked = (errors.isNotEmpty ? errors : lines).toList();
+  final text = picked
+      .skip(picked.length > 3 ? picked.length - 3 : 0)
+      .join(' / ');
+  if (text.isEmpty) return 'вывода нет';
+  return text.length > 300 ? text.substring(text.length - 300) : text;
 }
 
 class HuMirrorException implements Exception {

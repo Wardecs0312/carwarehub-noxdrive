@@ -74,6 +74,21 @@ class StreamPublisher {
 
   bool get isActive => _room != null;
 
+  /// Источники, которые не удалось запустить в последней трансляции, и причина.
+  Map<String, String> lastErrors = {};
+
+  /// Причины сохраняются в запись трансляции, чтобы их видел администратор.
+  Future<void> _reportErrors(String sessionId) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'master_stream_report',
+        params: {'p_id': sessionId, 'p_errors': lastErrors},
+      );
+    } catch (e) {
+      debugPrint('stream report failed: $e'); // старая база без функции
+    }
+  }
+
   /// Подключается и публикует доступные источники. Возвращает список опубликованных.
   Future<List<String>> start(String sessionId, List<String> sources) async {
     await stop();
@@ -86,7 +101,14 @@ class StreamPublisher {
     this.sessionId = sessionId;
 
     final published = <String>[];
-    for (final s in sources.where(canPublishSource)) {
+    lastErrors = {};
+    for (final s in sources) {
+      if (!canPublishSource(s)) {
+        lastErrors[s] = s == 'screen-hu'
+            ? 'нет scrcpy рядом с программой (папка scrcpy)'
+            : 'недоступно на этом устройстве';
+        continue;
+      }
       try {
         final track = await _createTrack(s);
         await room.localParticipant!.publishVideoTrack(
@@ -95,10 +117,12 @@ class StreamPublisher {
         );
         published.add(s);
       } catch (e) {
-        // Нет веб-камеры и т.п.: остальные источники продолжают работать.
-        debugPrint('stream source $s failed: $e');
+        // Нет веб-камеры и т.п.: остальные источники продолжают работать,
+        // а причина видна мастеру и администратору.
+        lastErrors[s] = '$e';
       }
     }
+    await _reportErrors(sessionId);
     if (published.isEmpty) {
       await stop();
       throw StreamException('На этом устройстве нет доступных источников');

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:carwarehub_noxdrive/adb/adb_client.dart';
 import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
+import 'package:carwarehub_noxdrive/adb/hu_mirror.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +18,21 @@ class _FakeClient implements AdbClient {
 }
 
 void main() {
+  group('lastLines: причина падения scrcpy для мастера и админа', () {
+    test('берутся строки с ошибкой', () {
+      const out =
+          'scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>\r\n'
+          'INFO: ADB device found\r\n'
+          'ERROR: Could not find any H.264 encoder\r\n'
+          'ERROR: Server connection failed\r\n';
+      expect(
+        lastLines(out),
+        'ERROR: Could not find any H.264 encoder / ERROR: Server connection failed',
+      );
+    });
+    test('пустой вывод', () => expect(lastLines(''), 'вывода нет'));
+  });
+
   group('pipeFailed: как понимать ответ adb exec-in', () {
     // adb exec-in не возвращает вывод команды на ГУ: при успешной установке ответ пустой.
     test('пустой ответ и код 0: успех (так выглядит любая установка APK)', () {

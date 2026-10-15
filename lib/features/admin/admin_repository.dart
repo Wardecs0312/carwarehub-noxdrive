@@ -111,6 +111,12 @@ const streamSources = {
   'camera': 'Камера',
 };
 
+/// Какие источники трансляции не запустились и почему: «Экран ГУ — причина; Камера — причина».
+String describeStreamErrors(Map<dynamic, dynamic> errors) => [
+  for (final e in errors.entries)
+    '${streamSources[e.key] ?? e.key} — ${e.value}',
+].join('; ');
+
 class AdminRepository {
   SupabaseClient get _db => Supabase.instance.client;
 

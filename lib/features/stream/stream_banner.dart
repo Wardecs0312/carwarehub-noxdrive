@@ -160,6 +160,7 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
               child: Text(
                 live
                     ? 'Идёт трансляция администратору: $sources'
+                          '${_publisher.lastErrors.isEmpty ? '' : '. Не запустилось: ${describeStreamErrors(_publisher.lastErrors)}'}'
                     : _error != null
                     ? 'Трансляция не запущена: $_error'
                     : 'Администратор запросил трансляцию: $sources',

@@ -38,6 +38,9 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
   String? _error;
   String? _expanded;
 
+  /// Источники, которые не запустились у мастера, и причина (stream_sessions.source_errors).
+  Map<String, dynamic> _sourceErrors = const {};
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +64,13 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
             if (!_ending) Navigator.of(context).maybePop();
             return;
           }
-          setState(() => _startedAt = DateTime.tryParse('${r['started_at']}'));
+          setState(() {
+            _startedAt = DateTime.tryParse('${r['started_at']}');
+            final errors = r['source_errors'];
+            _sourceErrors = errors is Map
+                ? Map<String, dynamic>.from(errors)
+                : const {};
+          });
         });
   }
 
@@ -179,6 +188,23 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
             ),
         ],
       ),
+      bottomNavigationBar: _sourceErrors.isEmpty
+          ? null
+          : Material(
+              color: NoxColors.warn,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Не запустилось у мастера: ${describeStreamErrors(_sourceErrors)}',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
       body: _error != null
           ? _Message(_error!)
           : _room == null
