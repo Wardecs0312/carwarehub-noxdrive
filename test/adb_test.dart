@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:carwarehub_noxdrive/adb/adb_client.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
@@ -13,6 +16,24 @@ class _FakeClient implements AdbClient {
 }
 
 void main() {
+  test(
+    'зависший процесс убивается по таймауту, а не остаётся в системе',
+    () async {
+      // ping -n 30 висит ~30 секунд; ждём всего 1 секунду.
+      final sw = Stopwatch()..start();
+      await expectLater(
+        runWithTimeout('ping', [
+          '-n',
+          '30',
+          '127.0.0.1',
+        ], const Duration(seconds: 1)),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(sw.elapsed, lessThan(const Duration(seconds: 10)));
+    },
+    skip: !Platform.isWindows ? 'только Windows' : false,
+  );
+
   group('parseAdbDevices', () {
     test('нет устройств', () {
       expect(

@@ -52,6 +52,9 @@ class FakeBackend implements JobBackend {
   bool refundRequested = false;
   int refundCalls = 0;
 
+  /// Отметка об успехе не доходит до сервера (обрыв связи в конце задания).
+  bool failFinishSuccess = false;
+
   @override
   Future<JobTicket> startJob({
     required String vin,
@@ -78,7 +81,10 @@ class FakeBackend implements JobBackend {
     String jobId, {
     required bool success,
     required String log,
-  }) async => finished.add(success);
+  }) async {
+    if (success && failFinishSuccess) throw Exception('нет связи');
+    finished.add(success);
+  }
 
   @override
   Future<void> requestRefund(String jobId, String reason) async {

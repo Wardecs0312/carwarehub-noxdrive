@@ -66,12 +66,17 @@ class ProcessAdbExecutor implements AdbExecutor {
 
   final String _adb;
 
-  Future<ProcessResult> _run(String serial, List<String> args) => Process.run(
-    _adb,
-    ['-s', serial, ...args],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  ).timeout(const Duration(seconds: 60));
+  Future<ProcessResult> _run(String serial, List<String> args) async {
+    try {
+      return await runWithTimeout(_adb, [
+        '-s',
+        serial,
+        ...args,
+      ], const Duration(seconds: 60));
+    } on TimeoutException {
+      throw AdbException('Устройство не ответило за 60 секунд');
+    }
+  }
 
   @override
   Future<String> shell(String serial, String command) async {
@@ -110,16 +115,27 @@ class ProcessAdbExecutor implements AdbExecutor {
     } on SocketException {
       // ГУ закрыло поток раньше времени: причину покажет вывод процесса ниже
     }
-    final code = await p.exitCode.timeout(const Duration(minutes: 10));
+    final int code;
+    try {
+      code = await p.exitCode.timeout(const Duration(minutes: 10));
+    } on TimeoutException {
+      p.kill();
+      await outSub.cancel();
+      await errSub.cancel();
+      throw AdbException('Установка не завершилась за 10 минут');
+    }
     await outSub.cancel();
     await errSub.cancel();
     final text = out.toString();
-    // pm install печатает Success, при ошибке выход бывает 0, поэтому смотрим на текст
-    if (code != 0 ||
-        RegExp(
-          r'Failure|Exception|Error',
-          caseSensitive: false,
-        ).hasMatch(text)) {
+    // adb exec-in не всегда передаёт код выхода команды на ГУ, поэтому смотрим и на текст.
+    // Установка APK обязана вывести Success. Для остальных команд ошибкой считаем только
+    // явные признаки сбоя, а не любое слово «Error»: оно бывает и в обычном выводе.
+    final isInstall = remoteArgs.contains('install');
+    final failed =
+        code != 0 ||
+        RegExp(r'Failure|Exception|\bError:').hasMatch(text) ||
+        (isInstall && !text.contains('Success'));
+    if (failed) {
       throw AdbException(
         text.trim().isEmpty ? 'Ошибка выполнения (код $code)' : text.trim(),
       );
