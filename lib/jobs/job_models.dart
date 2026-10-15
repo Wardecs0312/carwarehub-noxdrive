@@ -96,14 +96,20 @@ class DeviceInfo {
     required this.build,
     required this.model,
     required this.serial,
+    this.huSerial = '',
   });
   final String build;
   final String model;
   final String serial;
+
+  /// Заводской серийный номер головного устройства (ro.serialno). По нему сервер отличает
+  /// повтор услуги на той же машине (бесплатно) от другой машины с тем же VIN (платно).
+  final String huSerial;
   Map<String, dynamic> toJson() => {
     'build': build,
     'model': model,
     'serial': serial,
+    'hu_serial': huSerial,
   };
 }
 

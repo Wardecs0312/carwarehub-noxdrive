@@ -91,7 +91,19 @@ class ProcessAdbExecutor implements AdbExecutor {
   Future<DeviceInfo> readDeviceInfo(String serial) async {
     final build = await shell(serial, 'getprop ro.build.display.id');
     final model = await shell(serial, 'getprop ro.product.model');
-    return DeviceInfo(build: build, model: model, serial: serial);
+    // Серийный номер самого ГУ. Пустой ответ не ошибка: тогда сервер не даст бесплатный повтор.
+    String huSerial = '';
+    try {
+      huSerial = await shell(serial, 'getprop ro.serialno');
+    } on AdbException {
+      huSerial = '';
+    }
+    return DeviceInfo(
+      build: build,
+      model: model,
+      serial: serial,
+      huSerial: huSerial,
+    );
   }
 
   @override
