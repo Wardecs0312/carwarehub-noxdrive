@@ -176,7 +176,42 @@ void main() {
     expect(find.byKey(const Key('job-progress')), findsNothing);
   });
 
-  testWidgets('услуга без своих APK запускается сразу, без окна настройки', (
+  testWidgets(
+    'услуга без своих APK: сразу «Подтвердите загрузку», запуск только после кнопки',
+    (tester) async {
+      final exec = FakeExecutor();
+      await _open(
+        tester,
+        FakePicker([]),
+        FakeBackend(
+          const JobTicket(
+            jobId: 'j',
+            price: 0,
+            repeat: false,
+            steps: [
+              JobStep(type: StepType.shell, title: 'Проверка', cmd: 'echo'),
+            ],
+          ),
+          const [],
+        ),
+        exec,
+      );
+      await tester.tap(find.text('Перезагрузка автомобиля'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Настройка пакета установки'), findsNothing);
+      expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
+      expect(find.text('Свои APK'), findsNothing);
+      expect(exec.calls, isEmpty); // без подтверждения ничего не запускается
+
+      await tester.tap(find.byKey(const Key('confirm-load')));
+      await tester.pumpAndSettle();
+      expect(find.text('Услуга успешно выполнена'), findsOneWidget);
+      expect(exec.calls, ['shell:echo']);
+    },
+  );
+
+  testWidgets('услуга без своих APK: «Отмена» ничего не запускает', (
     tester,
   ) async {
     final exec = FakeExecutor();
@@ -198,9 +233,9 @@ void main() {
     );
     await tester.tap(find.text('Перезагрузка автомобиля'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Настройка пакета установки'), findsNothing);
-    expect(find.text('Услуга успешно выполнена'), findsOneWidget);
-    expect(exec.calls, ['shell:echo']);
+    await tester.tap(find.byKey(const Key('confirm-back')));
+    await tester.pumpAndSettle();
+    expect(find.text('Подтвердите загрузку на автомобиль'), findsNothing);
+    expect(exec.calls, isEmpty);
   });
 }

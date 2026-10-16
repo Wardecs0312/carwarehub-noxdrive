@@ -13,15 +13,22 @@ import '../shell/glow_button.dart';
 
 /// Окно «Настройка пакета установки» перед стартом услуг установки.
 /// Возвращает список своих APK мастера (с отметками) или null, если мастер отменил запуск.
+/// [confirmOnly]: услуга без своих APK — сразу окно «Подтвердите загрузку».
 Future<List<CustomApk>?> showPackageSetupDialog(
   BuildContext context, {
   required ServiceItem service,
   required CarModel model,
   required String vin,
+  bool confirmOnly = false,
 }) => showDialog<List<CustomApk>>(
   context: context,
   barrierColor: Colors.black.withValues(alpha: 0.6),
-  builder: (_) => _PackageSetupDialog(service: service, model: model, vin: vin),
+  builder: (_) => _PackageSetupDialog(
+    service: service,
+    model: model,
+    vin: vin,
+    confirmOnly: confirmOnly,
+  ),
 );
 
 class _PackageSetupDialog extends ConsumerStatefulWidget {
@@ -29,10 +36,12 @@ class _PackageSetupDialog extends ConsumerStatefulWidget {
     required this.service,
     required this.model,
     required this.vin,
+    required this.confirmOnly,
   });
   final ServiceItem service;
   final CarModel model;
   final String vin;
+  final bool confirmOnly;
 
   @override
   ConsumerState<_PackageSetupDialog> createState() =>
@@ -43,11 +52,12 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
   final List<CustomApk> _apks = [];
 
   /// Второй шаг: мастер проверяет, что и за сколько будет загружено в автомобиль.
-  bool _confirming = false;
+  late bool _confirming = widget.confirmOnly;
 
   @override
   void initState() {
     super.initState();
+    if (widget.confirmOnly) return; // своих APK у услуги нет
     // Свои APK, добавленные раньше, остаются в списке вместе с галочками.
     ref.read(customApkStoreProvider).load().then((saved) {
       if (!mounted) return;
@@ -113,6 +123,8 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
             ),
             child: _confirming && preview.hasValue
                 ? _confirmView(context, preview.requireValue)
+                : widget.confirmOnly
+                ? _confirmLoading(preview)
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,6 +259,31 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
     );
   }
 
+  /// Пока считается цена: ожидание или ошибка с кнопкой «Отмена».
+  Widget _confirmLoading(AsyncValue<PackagePreview> preview) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Подтвердите загрузку на автомобиль',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      const SizedBox(height: 18),
+      if (preview.hasError)
+        Text('${preview.error}', style: const TextStyle(color: NoxColors.bad))
+      else
+        const LinearProgressIndicator(),
+      const SizedBox(height: 18),
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+      ),
+    ],
+  );
+
   /// Шаг подтверждения: установка начинается только после «Подтвердить загрузку».
   Widget _confirmView(BuildContext context, PackagePreview p) {
     final custom = _apks.where((a) => a.selected).toList();
@@ -279,10 +316,11 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
         row('Услуга', widget.service.title),
         row('Модель', widget.model.title),
         row('VIN', widget.vin),
-        row(
-          'Свои APK',
-          custom.isEmpty ? 'нет' : custom.map((a) => a.name).join(', '),
-        ),
+        if (!widget.confirmOnly)
+          row(
+            'Свои APK',
+            custom.isEmpty ? 'нет' : custom.map((a) => a.name).join(', '),
+          ),
         row('Стоимость', price),
         const SizedBox(height: 8),
         const Text(
@@ -295,8 +333,10 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
           children: [
             TextButton(
               key: const Key('confirm-back'),
-              onPressed: () => setState(() => _confirming = false),
-              child: const Text('Назад'),
+              onPressed: widget.confirmOnly
+                  ? () => Navigator.of(context).pop()
+                  : () => setState(() => _confirming = false),
+              child: Text(widget.confirmOnly ? 'Отмена' : 'Назад'),
             ),
             const SizedBox(width: 12),
             GlowButton(

@@ -273,17 +273,18 @@ class _ServiceCard extends ConsumerWidget {
           onTap: enabled
               ? () async {
                   final v = normalizeVin(vin);
-                  var apks = const <CustomApk>[];
-                  if (service.allowCustomApks) {
-                    final chosen = await showPackageSetupDialog(
-                      context,
-                      service: service,
-                      model: model,
-                      vin: v,
-                    );
-                    if (chosen == null || !context.mounted) return;
-                    apks = chosen;
-                  }
+                  // Любая услуга начинается только после «Подтвердить загрузку».
+                  final chosen = await showPackageSetupDialog(
+                    context,
+                    service: service,
+                    model: model,
+                    vin: v,
+                    confirmOnly: !service.allowCustomApks,
+                  );
+                  if (chosen == null || !context.mounted) return;
+                  final apks = service.allowCustomApks
+                      ? chosen
+                      : const <CustomApk>[];
                   ref
                       .read(jobControllerProvider.notifier)
                       .run(
