@@ -125,6 +125,16 @@ Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
 }
 
 void main() {
+  test('пункт 1 AUTOMAX KG: разблокировка паролем идёт первой, до любых команд adb shell', () async {
+    final (c, exec, _, _) = await _setup(withReboot: false);
+    await c
+        .read(jobControllerProvider.notifier)
+        .run(service: _service, vin: _vin, model: _model);
+    expect(c.read(jobControllerProvider).phase, JobPhase.success);
+    expect(exec.unlocks, 1);
+    expect(exec.readBeforeUnlock, isFalse);
+  });
+
   test(
     'ГУ на секунду пропало из ADB: программа ждёт его и повторяет шаг',
     () async {

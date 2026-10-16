@@ -22,9 +22,18 @@ class FakeExecutor implements AdbExecutor {
   /// Сколько раз программа ждала возвращения ГУ.
   int waits = 0;
 
+  /// Сколько раз выполнена разблокировка (пункт 1 AUTOMAX KG) и что было до неё.
+  int unlocks = 0;
+  bool readBeforeUnlock = false;
+
   @override
-  Future<DeviceInfo> readDeviceInfo(String serial) async =>
-      DeviceInfo(build: 'CHANGAN.Q05.1.0', model: 'Q05', serial: serial);
+  Future<void> unlock(String serial) async => unlocks++;
+
+  @override
+  Future<DeviceInfo> readDeviceInfo(String serial) async {
+    if (unlocks == 0) readBeforeUnlock = true;
+    return DeviceInfo(build: 'CHANGAN.Q05.1.0', model: 'Q05', serial: serial);
+  }
 
   @override
   Future<String> shell(String serial, String command) async {

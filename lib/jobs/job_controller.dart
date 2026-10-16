@@ -132,6 +132,9 @@ class JobController extends Notifier<JobState> {
     String? jobId;
     var charged = false;
     try {
+      // Пункт 1 AUTOMAX KG: сначала разблокировка паролем, иначе ГУ не выполняет команды adb shell.
+      state = state.copyWith(stepTitle: 'Разблокировка доступа ADB');
+      await executor.unlock(adb.serial!);
       final device = await executor.readDeviceInfo(adb.serial!);
       final version = await ref.read(appVersionProvider.future);
       final ticket = await backend.startJob(

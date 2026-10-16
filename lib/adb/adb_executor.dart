@@ -24,6 +24,11 @@ abstract class AdbExecutor {
 
   Future<void> reboot(String serial);
 
+  /// Пункт 1 AUTOMAX KG «Разблокировать авторизацию»: тем же способом, что и в AUTOMAX
+  /// (`echo <пароль>| adb shell disable-verify 1`, затем `adb shell setprop vecentek.model 1`).
+  /// После этого ГУ больше не спрашивает пароль и остальные команды доходят.
+  Future<void> unlock(String serial);
+
   /// Ждёт, пока ГУ снова появится в ADB. false, если не появилось за [timeout].
   Future<bool> waitForDevice(String serial, Duration timeout);
 }
@@ -34,6 +39,9 @@ abstract class AdbExecutor {
 bool pipeFailed(int exitCode, String output) =>
     exitCode != 0 ||
     RegExp(r'Failure|Exception|^\s*Error:', multiLine: true).hasMatch(output);
+
+/// Пароль авторизации ADB на ГУ Changan (Tinnove/Vecentek), как в AUTOMAX KG.
+const huAdbPassword = 'adb36987';
 
 /// ГУ пропало из ADB (кабель, сон, перезапуск службы ADB на ГУ).
 bool isDeviceLost(Object e) => RegExp(
@@ -56,6 +64,9 @@ class UnsupportedAdbExecutor implements AdbExecutor {
   static Never _fail() => throw AdbException(
     'Услуги запускаются в программе для Windows или Android',
   );
+
+  @override
+  Future<void> unlock(String serial) async => _fail();
 
   @override
   Future<DeviceInfo> readDeviceInfo(String serial) async => _fail();
@@ -163,6 +174,46 @@ class ProcessAdbExecutor implements AdbExecutor {
       throw AdbException(
         text.trim().isEmpty ? 'Ошибка выполнения (код $code)' : text.trim(),
       );
+    }
+  }
+
+  @override
+  Future<void> unlock(String serial) async {
+    // Как в AUTOMAX: пароль уходит с компьютера в stdin `adb shell`. Вывод не важен
+    // (AUTOMAX тоже его скрывает): на уже разблокированном ГУ команда просто ничего не меняет.
+    try {
+      final p = await Process.start(_adb, [
+        '-s',
+        serial,
+        'shell',
+        'disable-verify',
+        '1',
+      ]);
+      final out = p.stdout.drain<void>();
+      final err = p.stderr.drain<void>();
+      try {
+        p.stdin.write('$huAdbPassword\r\n');
+        await p.stdin.flush();
+        await p.stdin.close();
+      } on SocketException {
+        // команда завершилась, не дочитав пароль: ГУ уже разблокировано
+      }
+      await p.exitCode.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          p.kill();
+          return -1;
+        },
+      );
+      await Future.wait([out, err])
+          .timeout(const Duration(seconds: 2), onTimeout: () => const []);
+    } on ProcessException catch (e) {
+      throw AdbException('Не удалось запустить adb: ${e.message}');
+    }
+    try {
+      await _run(serial, ['shell', 'setprop', 'vecentek.model', '1']);
+    } on AdbException {
+      // как в AUTOMAX: ошибка setprop не останавливает работу
     }
   }
 
