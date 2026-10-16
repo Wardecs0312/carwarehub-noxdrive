@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -114,6 +116,11 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
     return true;
   }
 
+  /// Плашка мастера показывает актуальный список того, что не запустилось.
+  void _refresh(void _) {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _setStatus(String id, String status) =>
       _db.rpc('master_stream_status', params: {'p_id': id, 'p_status': status});
 
@@ -125,6 +132,16 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // ГУ подключили или отключили во время трансляции: экран машины добавляется или убирается.
+    ref.listen(adbStatusProvider, (_, next) {
+      final adb = next.value;
+      if (!_publisher.isActive) return;
+      if (adb != null && adb.isReady && adb.serial != null) {
+        unawaited(_publisher.attachHu(adb.serial!).then(_refresh));
+      } else {
+        unawaited(_publisher.detachHu().then(_refresh));
+      }
+    });
     ref.listen(myStreamSessionsProvider, (_, next) {
       final open = next.value;
       if (open != null) _sync(open);

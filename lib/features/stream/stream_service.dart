@@ -74,6 +74,17 @@ class StreamPublisher {
 
   bool get isActive => _room != null;
 
+  /// Источники, которые запросил админ в текущей трансляции.
+  List<String> _requested = const [];
+
+  /// Опубликованный экран ГУ (чтобы убрать его, если ГУ отключили).
+  LocalVideoTrack? _huTrack;
+  bool _huBusy = false;
+
+  /// Экран ГУ нужен в трансляции, но сейчас не идёт (ГУ подключили позже или переподключили).
+  bool get wantsHu =>
+      isActive && _requested.contains('screen-hu') && _huTrack == null;
+
   /// Источники, которые не удалось запустить в последней трансляции, и причина.
   Map<String, String> lastErrors = {};
 
@@ -99,6 +110,7 @@ class StreamPublisher {
     await room.connect(access.url, access.token);
     _room = room;
     this.sessionId = sessionId;
+    _requested = List.of(sources);
 
     final published = <String>[];
     lastErrors = {};
@@ -115,6 +127,7 @@ class StreamPublisher {
           track,
           publishOptions: VideoPublishOptions(name: s),
         );
+        if (s == 'screen-hu') _huTrack = track;
         published.add(s);
       } catch (e) {
         // Нет веб-камеры и т.п.: остальные источники продолжают работать,
@@ -185,7 +198,56 @@ class StreamPublisher {
     throw StreamException('Окно экрана ГУ не появилось');
   }
 
+  /// ГУ подключили во время трансляции: экран машины добавляется без перезапуска.
+  Future<void> attachHu(String serial) async {
+    final room = _room;
+    final id = sessionId;
+    if (!wantsHu || _huBusy || room == null || id == null) return;
+    if (!canPublishSource('screen-hu')) return;
+    _huBusy = true;
+    try {
+      huSerial = serial;
+      final track = await _createHuTrack();
+      if (_room != room) {
+        await track.stop();
+        return;
+      }
+      await room.localParticipant!.publishVideoTrack(
+        track,
+        publishOptions: const VideoPublishOptions(name: 'screen-hu'),
+      );
+      _huTrack = track;
+      lastErrors.remove('screen-hu');
+    } catch (e) {
+      _mirror?.stop();
+      _mirror = null;
+      lastErrors['screen-hu'] = '$e';
+    } finally {
+      _huBusy = false;
+    }
+    await _reportErrors(id);
+  }
+
+  /// ГУ отключили: экран машины убирается из трансляции, причина видна админу.
+  Future<void> detachHu() async {
+    final track = _huTrack;
+    final id = sessionId;
+    if (track == null || id == null) return;
+    _huTrack = null;
+    huSerial = null;
+    _mirror?.stop();
+    _mirror = null;
+    try {
+      await _room?.localParticipant?.removePublishedTrack(track.sid!);
+    } catch (_) {}
+    await track.stop();
+    lastErrors['screen-hu'] = 'ГУ отключено по ADB';
+    await _reportErrors(id);
+  }
+
   Future<void> stop() async {
+    _huTrack = null;
+    _requested = const [];
     _mirror?.stop();
     _mirror = null;
     final room = _room;
