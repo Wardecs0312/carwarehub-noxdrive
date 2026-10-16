@@ -69,14 +69,29 @@ class _StreamBannerState extends ConsumerState<StreamBanner> {
       }
       final adb = ref.read(adbStatusProvider).value;
       _publisher.huSerial = adb != null && adb.isReady ? adb.serial : null;
-      await _publisher.start(str(next['id']), [
-        for (final s in (next['sources'] as List? ?? const [])) str(s),
-      ]);
+      await _publisher
+          .start(str(next['id']), [
+            for (final s in (next['sources'] as List? ?? const [])) str(s),
+          ])
+          .timeout(
+            const Duration(seconds: 45),
+            onTimeout: () async {
+              await _publisher.stop();
+              throw StreamException('Трансляция не запустилась за 45 секунд');
+            },
+          );
       if (mounted) setState(() => _error = null);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
       _busy = false;
+      // Запрос, пришедший пока программа была занята, не теряется.
+      if (mounted) {
+        final latest = ref.read(myStreamSessionsProvider).value;
+        if (latest != null && !identical(latest, open)) {
+          unawaited(_sync(latest));
+        }
+      }
     }
   }
 

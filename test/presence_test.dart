@@ -2,6 +2,7 @@ import 'package:carwarehub_noxdrive/features/admin/admin_screen.dart';
 import 'package:carwarehub_noxdrive/features/admin_web/admin_web_app.dart';
 import 'package:carwarehub_noxdrive/features/presence/presence_models.dart';
 import 'package:carwarehub_noxdrive/features/presence/presence_service.dart';
+import 'package:carwarehub_noxdrive/features/stream/stream_service.dart';
 import 'package:carwarehub_noxdrive/features/stream/stream_viewer_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,4 +88,11 @@ void main() {
       expect(preferredSource(['camera']), 'camera');
     },
   );
+
+  test('экраны идут одним качеством, камера — как обычно', () {
+    expect(publishOptionsFor('screen-laptop').simulcast, isFalse);
+    expect(publishOptionsFor('screen-hu').simulcast, isFalse);
+    expect(publishOptionsFor('screen-hu').name, 'screen-hu');
+    expect(publishOptionsFor('camera').simulcast, isTrue);
+  });
 }

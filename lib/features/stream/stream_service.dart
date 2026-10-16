@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart';
@@ -63,6 +65,19 @@ bool canPublishSource(String source) => switch (source) {
 
 bool get _windows => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
+/// Экраны (ноутбук, ГУ) идут одним качеством без simulcast: у неподвижного экрана
+/// нижние слои simulcast могли не отправляться, и админ видел пустое окно.
+VideoPublishOptions publishOptionsFor(String source) => source == 'camera'
+    ? VideoPublishOptions(name: source)
+    : VideoPublishOptions(
+        name: source,
+        simulcast: false,
+        videoEncoding: const VideoEncoding(
+          maxBitrate: 2500000,
+          maxFramerate: 15,
+        ),
+      );
+
 /// Публикация трансляции мастером. Одна комната на мастера: `master-<uuid>`.
 class StreamPublisher {
   Room? _room;
@@ -73,6 +88,27 @@ class StreamPublisher {
   String? huSerial;
 
   bool get isActive => _room != null;
+
+  /// Опубликованные дорожки по источникам (для проверки, идут ли кадры).
+  final Map<String, LocalVideoTrack> _published = {};
+
+  /// Через 8 секунд после старта: если у источника 0 отправленных кадров, админ видит причину.
+  Future<void> _checkFrames(Room room, String id) async {
+    await Future<void>.delayed(const Duration(seconds: 8));
+    if (_room != room) return;
+    var changed = false;
+    for (final e in Map.of(_published).entries) {
+      try {
+        final stats = await e.value.getSenderStats();
+        final frames = stats.fold<num>(0, (s, x) => s + (x.framesSent ?? 0));
+        if (stats.isNotEmpty && frames == 0) {
+          lastErrors[e.key] = 'видео не передаётся: 0 кадров за 8 секунд';
+          changed = true;
+        }
+      } catch (_) {}
+    }
+    if (changed && _room == room) await _reportErrors(id);
+  }
 
   /// Источники, которые запросил админ в текущей трансляции.
   List<String> _requested = const [];
@@ -125,9 +161,10 @@ class StreamPublisher {
         final track = await _createTrack(s);
         await room.localParticipant!.publishVideoTrack(
           track,
-          publishOptions: VideoPublishOptions(name: s),
+          publishOptions: publishOptionsFor(s),
         );
         if (s == 'screen-hu') _huTrack = track;
+        _published[s] = track;
         published.add(s);
       } catch (e) {
         // Нет веб-камеры и т.п.: остальные источники продолжают работать,
@@ -136,6 +173,7 @@ class StreamPublisher {
       }
     }
     await _reportErrors(sessionId);
+    unawaited(_checkFrames(room, sessionId));
     if (published.isEmpty) {
       await stop();
       throw StreamException('На этом устройстве нет доступных источников');
@@ -182,7 +220,7 @@ class StreamPublisher {
         types: [rtc.SourceType.Window],
       );
       final w = windows
-          .where((s) => s.name == HuMirror.windowTitle)
+          .where((s) => HuMirror.isMirrorWindow(s.name))
           .firstOrNull;
       if (w != null) {
         return LocalVideoTrack.createScreenShareTrack(
@@ -214,9 +252,10 @@ class StreamPublisher {
       }
       await room.localParticipant!.publishVideoTrack(
         track,
-        publishOptions: const VideoPublishOptions(name: 'screen-hu'),
+        publishOptions: publishOptionsFor('screen-hu'),
       );
       _huTrack = track;
+      _published['screen-hu'] = track;
       lastErrors.remove('screen-hu');
     } catch (e) {
       _mirror?.stop();
@@ -234,6 +273,7 @@ class StreamPublisher {
     final id = sessionId;
     if (track == null || id == null) return;
     _huTrack = null;
+    _published.remove('screen-hu');
     huSerial = null;
     _mirror?.stop();
     _mirror = null;
@@ -247,6 +287,7 @@ class StreamPublisher {
 
   Future<void> stop() async {
     _huTrack = null;
+    _published.clear();
     _requested = const [];
     _mirror?.stop();
     _mirror = null;

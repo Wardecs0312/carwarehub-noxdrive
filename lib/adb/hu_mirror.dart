@@ -8,7 +8,11 @@ import 'adb_client.dart';
 class HuMirror {
   HuMirror._(this._process, this._serial, this._touchesBefore);
 
-  static const windowTitle = 'nox.drive: экран ГУ';
+  /// Латиницей: русское название окна могло не находиться в списке окон Windows.
+  static const windowTitle = 'nox.drive HU screen';
+
+  /// Окно scrcpy с экраном ГУ (название может прийти с добавками).
+  static bool isMirrorWindow(String name) => name.contains(windowTitle);
 
   final Process _process;
   final String _serial;

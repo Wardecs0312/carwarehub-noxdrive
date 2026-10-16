@@ -18,6 +18,12 @@ class _FakeClient implements AdbClient {
 }
 
 void main() {
+  test('окно экрана ГУ находится по латинскому названию', () {
+    expect(HuMirror.isMirrorWindow('nox.drive HU screen'), isTrue);
+    expect(HuMirror.isMirrorWindow('nox.drive HU screen - scrcpy'), isTrue);
+    expect(HuMirror.isMirrorWindow('nox.drive'), isFalse);
+  });
+
   group('lastLines: причина падения scrcpy для мастера и админа', () {
     test('берутся строки с ошибкой', () {
       const out =
