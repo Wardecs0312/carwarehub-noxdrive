@@ -13,6 +13,7 @@ import 'features/admin/admin_repository.dart';
 import 'features/auth/account_status_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
+import 'features/presence/presence_service.dart';
 import 'features/stream/stream_banner.dart';
 import 'features/update/update_ui.dart';
 import 'features/update/updater.dart';
@@ -61,6 +62,8 @@ class _AppGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // «В сети» для админ-панели: вход, затем отметка раз в минуту.
+    ref.watch(presenceProvider);
     final update = ref.watch(updateProvider).value;
     // Обязательное обновление не прерывает услугу, которая уже идёт: экран обновления
     // появится, когда она закончится.

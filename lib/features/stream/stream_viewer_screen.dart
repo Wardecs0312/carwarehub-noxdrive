@@ -156,6 +156,22 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
     final shown = _expanded != null && tracks.containsKey(_expanded)
         ? {_expanded!: tracks[_expanded]!}
         : tracks;
+    // Телефон повёрнут горизонтально: одно окно на весь экран, переключение источников сверху.
+    if (tracks.isNotEmpty && isLandscapePhone(MediaQuery.sizeOf(context))) {
+      final key = tracks.containsKey(_expanded)
+          ? _expanded!
+          : preferredSource(tracks.keys);
+      return _FullscreenView(
+        tracks: tracks,
+        current: key,
+        startedAt: _startedAt,
+        warning: _sourceErrors.isEmpty
+            ? null
+            : 'Не запустилось у мастера: ${describeStreamErrors(_sourceErrors)}',
+        onSelect: (k) => setState(() => _expanded = k),
+        onClose: () => Navigator.of(context).maybePop(),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -242,6 +258,116 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
             ),
     );
   }
+}
+
+/// Телефон в горизонтальном положении (короткая сторона экрана меньше 600).
+bool isLandscapePhone(Size size) =>
+    size.width > size.height && size.shortestSide < 600;
+
+/// Что показывать первым на весь экран: экран ГУ, затем экран ноутбука, затем камеру.
+String preferredSource(Iterable<String> keys) {
+  for (final k in const ['screen-hu', 'screen-laptop', 'camera']) {
+    if (keys.contains(k)) return k;
+  }
+  return keys.first;
+}
+
+class _FullscreenView extends StatelessWidget {
+  const _FullscreenView({
+    required this.tracks,
+    required this.current,
+    required this.startedAt,
+    required this.warning,
+    required this.onSelect,
+    required this.onClose,
+  });
+
+  final Map<String, VideoTrack> tracks;
+  final String current;
+  final DateTime? startedAt;
+  final String? warning;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('stream-fullscreen'),
+    backgroundColor: Colors.black,
+    body: Stack(
+      fit: StackFit.expand,
+      children: [
+        VideoTrackRenderer(tracks[current]!, fit: VideoViewFit.contain),
+        Positioned(
+          left: 8,
+          top: 8,
+          right: 8,
+          child: SafeArea(
+            child: Row(
+              children: [
+                IconButton.filledTonal(
+                  tooltip: 'Назад',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: onClose,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final k in tracks.keys)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              key: Key('source-$k'),
+                              label: Text(streamSources[k] ?? k),
+                              selected: k == current,
+                              onSelected: (_) => onSelect(k),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (startedAt != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: StreamClock(
+                      startedAt: startedAt!,
+                      style: const TextStyle(color: NoxColors.bad),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (warning != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              color: NoxColors.warn,
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                warning!,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
 }
 
 class _Tile extends StatelessWidget {

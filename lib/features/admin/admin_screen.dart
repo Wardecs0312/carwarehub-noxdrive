@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/theme.dart';
+import '../../data/auth_repository.dart';
 import '../../data/catalog_repository.dart';
 import '../../data/models.dart';
 import '../history/credits_repository.dart';
+import '../presence/presence_models.dart';
 import '../history/credits_screen.dart';
 import '../history/history_repository.dart';
 import '../history/history_screen.dart';
@@ -15,15 +18,29 @@ import 'admin_repository.dart';
 /// Админ-панель: мастера и баланс, заявки на возврат, трансляции.
 /// Вёрстка одна для телефона (PWA/APK), ноутбука и ГУ: вкладки и списки без фиксированной ширины.
 class AdminScreen extends StatelessWidget {
-  const AdminScreen({super.key});
+  const AdminScreen({super.key, this.standalone = false});
+
+  /// Сайт админки: своя кнопка «Выйти» и нет кнопки «назад».
+  final bool standalone;
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 5,
     child: Scaffold(
       appBar: AppBar(
-        title: const Text('Админ-панель'),
-        actions: const [_TelegramSetupButton()],
+        title: Text(standalone ? 'nox.drive · Админ' : 'Админ-панель'),
+        automaticallyImplyLeading: !standalone,
+        actions: [
+          const _SitePasswordButton(),
+          const _TelegramSetupButton(),
+          if (standalone)
+            IconButton(
+              key: const Key('admin-logout'),
+              tooltip: 'Выйти',
+              icon: const Icon(Icons.logout),
+              onPressed: () => _confirmLogout(context),
+            ),
+        ],
         bottom: const TabBar(
           isScrollable: true,
           tabs: [
@@ -49,6 +66,159 @@ class AdminScreen extends StatelessWidget {
       ),
     ),
   );
+}
+
+Future<void> _confirmLogout(BuildContext context) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Выйти из админ-панели?'),
+      content: const Text('Чтобы войти снова, понадобятся логин и пароль.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          key: const Key('admin-logout-confirm'),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Выйти'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) await signOut();
+}
+
+/// Логин для сайта админки: Telegram ID для входа через Telegram, иначе почта.
+String siteLoginFor(String? email) {
+  final m = RegExp(r'^tg-(\d+)@telegram\.nox\.drive$').firstMatch(email ?? '');
+  return m != null ? m.group(1)! : (email ?? '');
+}
+
+/// «Пароль для сайта»: админ сам задаёт пароль для входа в веб-админку.
+class _SitePasswordButton extends StatelessWidget {
+  const _SitePasswordButton();
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    key: const Key('site-password'),
+    tooltip: 'Пароль для сайта админки',
+    icon: const Icon(Icons.key),
+    onPressed: () => showDialog<void>(
+      context: context,
+      builder: (_) => const _SitePasswordDialog(),
+    ),
+  );
+}
+
+class _SitePasswordDialog extends StatefulWidget {
+  const _SitePasswordDialog();
+
+  @override
+  State<_SitePasswordDialog> createState() => _SitePasswordDialogState();
+}
+
+class _SitePasswordDialogState extends State<_SitePasswordDialog> {
+  final _p1 = TextEditingController();
+  final _p2 = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _p1.dispose();
+    _p2.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final p = _p1.text;
+    if (p.length < 8) {
+      setState(() => _error = 'Пароль: не меньше 8 символов');
+      return;
+    }
+    if (p != _p2.text) {
+      setState(() => _error = 'Пароли не совпадают');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(password: p),
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      _toast(context, 'Пароль для сайта сохранён');
+    } catch (e) {
+      setState(() => _error = 'Не удалось сохранить: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final login = siteLoginFor(
+      Supabase.instance.client.auth.currentUser?.email,
+    );
+    return AlertDialog(
+      title: const Text('Пароль для сайта админки'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Логин для входа на сайт:'),
+            SelectableText(
+              login,
+              key: const Key('site-login'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('site-pass-1'),
+              controller: _p1,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Новый пароль'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('site-pass-2'),
+              controller: _p2,
+              obscureText: true,
+              onSubmitted: (_) => _save(),
+              decoration: const InputDecoration(labelText: 'Повторите пароль'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: NoxColors.bad)),
+            ],
+            const SizedBox(height: 8),
+            const Text(
+              'Вход в программу через Telegram не меняется.',
+              style: TextStyle(color: NoxColors.metalMid, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          key: const Key('site-pass-save'),
+          onPressed: _busy ? null : _save,
+          child: const Text('Сохранить'),
+        ),
+      ],
+    );
+  }
 }
 
 /// Подключает Telegram-бота к функции входа (один раз после публикации telegram-auth).
@@ -294,82 +464,134 @@ class _MastersTab extends ConsumerWidget {
   const _MastersTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => _AsyncList<MasterRow>(
-    value: ref.watch(adminMastersProvider),
-    onRefresh: () => ref.refresh(adminMastersProvider.future),
-    empty: 'Мастеров пока нет',
-    itemBuilder: (m) => Card(
-      color: NoxColors.panelHi,
-      child: ListTile(
-        leading: Icon(
-          Icons.person,
-          color: switch (m.status) {
-            'active' => NoxColors.ok,
-            'pending' => NoxColors.warn,
-            _ => NoxColors.bad,
-          },
-        ),
-        // Нажатие на имя открывает переименование (и для себя, и для любого мастера).
-        title: InkWell(
-          key: Key('rename-${m.id}'),
-          onTap: () => _rename(context, ref, m),
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: '${m.name} '),
-                const WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Icon(Icons.edit, size: 14, color: NoxColors.metalMid),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final presence = ref.watch(presenceMapProvider).value ?? const {};
+    final now = ref.watch(presenceClockProvider).value ?? DateTime.now();
+    return _AsyncList<MasterRow>(
+      value: ref.watch(adminMastersProvider),
+      onRefresh: () => ref.refresh(adminMastersProvider.future),
+      empty: 'Мастеров пока нет',
+      // Карточка в две строки: на телефоне имя не сжимается кнопками.
+      itemBuilder: (m) => Card(
+        color: NoxColors.panelHi,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _PresenceAvatar(
+                    status: m.status,
+                    online: presence[m.id]?.isOnline(now) ?? false,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: InkWell(
+                      key: Key('rename-${m.id}'),
+                      onTap: () => _rename(context, ref, m),
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${m.name} ',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Icon(
+                                Icons.edit,
+                                size: 14,
+                                color: NoxColors.metalMid,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text(
+                      '${m.credits} кр.',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 42, top: 2, right: 8),
+                child: Text(
+                  [
+                    presenceText(presence[m.id], now),
+                    ?presence[m.id]?.place,
+                    if (presence[m.id]?.appVersion case final v?) 'версия $v',
+                    if (m.phone != null) m.phone!,
+                    if (m.status == 'pending') 'ожидает одобрения',
+                    if (m.status == 'blocked') 'заблокирован',
+                  ].join(' · '),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: (presence[m.id]?.isOnline(now) ?? false)
+                        ? NoxColors.ok
+                        : NoxColors.metalMid,
+                  ),
                 ),
-              ],
-            ),
+              ),
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (m.status == 'pending')
+                    FilledButton(
+                      onPressed: () => _setStatus(context, ref, m, 'active'),
+                      child: const Text('Одобрить'),
+                    ),
+                  IconButton(
+                    tooltip: m.status == 'blocked'
+                        ? 'Разблокировать'
+                        : 'Заблокировать',
+                    icon: Icon(
+                      m.status == 'blocked' ? Icons.lock_open : Icons.block,
+                    ),
+                    onPressed: () => _setStatus(
+                      context,
+                      ref,
+                      m,
+                      m.status == 'blocked' ? 'active' : 'blocked',
+                    ),
+                  ),
+                  IconButton(
+                    key: Key('credits-${m.id}'),
+                    tooltip: 'Кредиты: начислить или списать',
+                    icon: const Icon(Icons.add_card),
+                    onPressed: () => _adjustCredits(context, ref, m),
+                  ),
+                  IconButton(
+                    key: Key('logins-${m.id}'),
+                    tooltip: 'История входов',
+                    icon: const Icon(Icons.travel_explore),
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => _LoginHistoryDialog(master: m),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Запросить трансляцию',
+                    icon: const Icon(Icons.videocam),
+                    onPressed: () => _requestStream(context, ref, m),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        subtitle: Text(
-          [
-            if (m.phone != null) m.phone!,
-            if (m.status == 'pending') 'ожидает одобрения',
-            if (m.status == 'blocked') 'заблокирован',
-          ].join(' · '),
-        ),
-        trailing: Wrap(
-          spacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (m.status == 'pending')
-              FilledButton(
-                onPressed: () => _setStatus(context, ref, m, 'active'),
-                child: const Text('Одобрить'),
-              ),
-            Text('${m.credits} кр.'),
-            IconButton(
-              tooltip: m.status == 'blocked'
-                  ? 'Разблокировать'
-                  : 'Заблокировать',
-              icon: Icon(m.status == 'blocked' ? Icons.lock_open : Icons.block),
-              onPressed: () => _setStatus(
-                context,
-                ref,
-                m,
-                m.status == 'blocked' ? 'active' : 'blocked',
-              ),
-            ),
-            IconButton(
-              key: Key('credits-${m.id}'),
-              tooltip: 'Кредиты: начислить или списать',
-              icon: const Icon(Icons.add_card),
-              onPressed: () => _adjustCredits(context, ref, m),
-            ),
-            IconButton(
-              tooltip: 'Запросить трансляцию',
-              icon: const Icon(Icons.videocam),
-              onPressed: () => _requestStream(context, ref, m),
-            ),
-          ],
-        ),
       ),
-    ),
-  );
+    );
+  }
 
   /// Окно мастера: имя (ник) и специальные цены.
   Future<void> _rename(BuildContext context, WidgetRef ref, MasterRow m) async {
@@ -689,4 +911,112 @@ class _CreditsTab extends ConsumerWidget {
     showMaster: true,
     empty: 'Операций с кредитами пока нет.',
   );
+}
+
+/// Значок мастера: цвет — статус доступа, зелёная точка — сейчас в программе.
+class _PresenceAvatar extends StatelessWidget {
+  const _PresenceAvatar({required this.status, required this.online});
+  final String status;
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 32,
+    height: 32,
+    child: Stack(
+      children: [
+        Icon(
+          Icons.person,
+          size: 28,
+          color: switch (status) {
+            'active' => NoxColors.metalLight,
+            'pending' => NoxColors.warn,
+            _ => NoxColors.bad,
+          },
+        ),
+        Positioned(
+          right: 0,
+          bottom: 0,
+          child: Container(
+            key: Key(online ? 'online-dot' : 'offline-dot'),
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: online ? NoxColors.ok : NoxColors.metalDark,
+              border: Border.all(color: NoxColors.panelHi, width: 2),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// История входов мастера: когда, откуда (страна, город, IP), с какого компьютера и версии.
+class _LoginHistoryDialog extends ConsumerWidget {
+  const _LoginHistoryDialog({required this.master});
+  final MasterRow master;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final events = ref.watch(loginEventsProvider(master.id));
+    const muted = TextStyle(color: NoxColors.metalMid, fontSize: 13);
+    return AlertDialog(
+      title: Text('Входы: ${master.name}'),
+      content: SizedBox(
+        width: 520,
+        child: events.when(
+          loading: () => const SizedBox(
+            height: 80,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Text('Не удалось загрузить: $e'),
+          data: (list) => list.isEmpty
+              ? const Text(
+                  'Входов пока нет. История появится, когда мастер откроет программу версии 2.0.21 или новее.',
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: list.length,
+                  separatorBuilder: (_, _) => const Divider(height: 12),
+                  itemBuilder: (_, i) {
+                    final e = list[i];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          formatWhen(e.createdAt),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          [
+                            placeText(e.country, e.city) ??
+                                'страна не определилась',
+                            if (e.ip != null) 'IP ${e.ip}',
+                          ].join(' · '),
+                          style: muted,
+                        ),
+                        Text(
+                          [
+                            if (e.device != null) e.device!,
+                            if (e.platform != null) e.platform!,
+                            if (e.appVersion != null) 'версия ${e.appVersion}',
+                          ].join(' · '),
+                          style: muted,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Закрыть'),
+        ),
+      ],
+    );
+  }
 }

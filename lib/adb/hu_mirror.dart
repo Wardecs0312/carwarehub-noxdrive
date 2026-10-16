@@ -6,11 +6,15 @@ import 'adb_client.dart';
 /// Окно с экраном ГУ на ноутбуке мастера (scrcpy, Apache 2.0). Окно затем захватывается
 /// как источник трансляции `screen-hu`. Управление ГУ из окна выключено (`--no-control`).
 class HuMirror {
-  HuMirror._(this._process);
+  HuMirror._(this._process, this._serial, this._touchesBefore);
 
   static const windowTitle = 'nox.drive: экран ГУ';
 
   final Process _process;
+  final String _serial;
+
+  /// Значение «показывать нажатия» на ГУ до трансляции (восстанавливается в [stop]).
+  final String? _touchesBefore;
 
   /// scrcpy лежит рядом с программой в папке `scrcpy\` (как adb в `adb\`).
   static String get path {
@@ -21,6 +25,9 @@ class HuMirror {
   static bool get available => Platform.isWindows && File(path).existsSync();
 
   static Future<HuMirror> start(String serial) async {
+    // Кружки касаний мастера видны админу на экране ГУ. scrcpy делает это только с
+    // включённым управлением, поэтому настройка Android меняется напрямую.
+    final touchesBefore = await _showTouches(serial, null);
     final p = await Process.start(
       path,
       [
@@ -67,16 +74,65 @@ class HuMirror {
       onTimeout: () => -1,
     );
     if (early != -1) {
+      await _showTouches(serial, touchesBefore ?? '0');
       await Future.wait([outDone, errDone])
           .timeout(const Duration(seconds: 1), onTimeout: () => const []);
       throw HuMirrorException(
         'scrcpy не запустился (код $early): ${lastLines(out.toString())}',
       );
     }
-    return HuMirror._(p);
+    return HuMirror._(p, serial, touchesBefore);
   }
 
-  void stop() => _process.kill();
+  void stop() {
+    _process.kill();
+    unawaited(_showTouches(_serial, _touchesBefore ?? '0'));
+  }
+
+  /// [restore] == null: включает «показывать нажатия» и возвращает прежнее значение.
+  /// Иначе ставит значение [restore]. Ошибки adb не мешают трансляции.
+  static Future<String?> _showTouches(String serial, String? restore) async {
+    final adb = resolveAdbPath();
+    const t = Duration(seconds: 5);
+    try {
+      if (restore != null) {
+        await runWithTimeout(adb, [
+          '-s',
+          serial,
+          'shell',
+          'settings',
+          'put',
+          'system',
+          'show_touches',
+          restore,
+        ], t);
+        return restore;
+      }
+      final r = await runWithTimeout(adb, [
+        '-s',
+        serial,
+        'shell',
+        'settings',
+        'get',
+        'system',
+        'show_touches',
+      ], t);
+      final before = '${r.stdout}'.trim() == '1' ? '1' : '0';
+      await runWithTimeout(adb, [
+        '-s',
+        serial,
+        'shell',
+        'settings',
+        'put',
+        'system',
+        'show_touches',
+        '1',
+      ], t);
+      return before;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Последние осмысленные строки вывода scrcpy (там ошибка), не длиннее 300 символов.
