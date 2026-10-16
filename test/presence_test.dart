@@ -60,6 +60,10 @@ void main() {
     expect(adminLoginEmail('WardecsFly@Gmail.com'), 'wardecsfly@gmail.com');
     expect(siteLoginFor('tg-8106761823@telegram.nox.drive'), '8106761823');
     expect(siteLoginFor('wardecsfly@gmail.com'), 'wardecsfly@gmail.com');
+    expect(isTelegramNick('@Wiqqq99'), isTrue);
+    expect(isTelegramNick('Wiqqq99'), isTrue);
+    expect(isTelegramNick('8106761823'), isFalse);
+    expect(isTelegramNick('wardecsfly@gmail.com'), isFalse);
   });
 
   testWidgets('вход на сайт: пустые поля — понятная ошибка', (tester) async {
@@ -73,11 +77,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('трансляция: телефон горизонтально — на весь экран, первым экран ГУ', () {
-    expect(isLandscapePhone(const Size(812, 375)), isTrue);
-    expect(isLandscapePhone(const Size(375, 812)), isFalse);
-    expect(isLandscapePhone(const Size(1920, 1080)), isFalse);
-    expect(preferredSource(['camera', 'screen-hu']), 'screen-hu');
-    expect(preferredSource(['camera']), 'camera');
-  });
+  test(
+    'трансляция: телефон горизонтально — на весь экран, первым экран ГУ',
+    () {
+      expect(isLandscapePhone(const Size(812, 375)), isTrue);
+      expect(isLandscapePhone(const Size(375, 812)), isFalse);
+      expect(isLandscapePhone(const Size(1920, 1080)), isFalse);
+      expect(preferredSource(['camera', 'screen-hu']), 'screen-hu');
+      expect(preferredSource(['camera']), 'camera');
+    },
+  );
 }

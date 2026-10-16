@@ -15,6 +15,22 @@ String adminLoginEmail(String input) {
   return RegExp(r'^\d{4,15}$').hasMatch(s) ? 'tg-$s@telegram.nox.drive' : s;
 }
 
+/// Логин похож на Telegram-ник: «@nick» или «nick» без знака @ внутри.
+bool isTelegramNick(String input) {
+  final s = input.trim();
+  return RegExp(r'^@?[A-Za-z][A-Za-z0-9_]{2,31}$').hasMatch(s);
+}
+
+/// Почта для входа: ник админа превращается в почту его учётной записи через базу.
+Future<String?> resolveAdminLogin(String input) async {
+  if (!isTelegramNick(input)) return adminLoginEmail(input);
+  final email = await Supabase.instance.client.rpc(
+    'admin_login_email',
+    params: {'p_username': input.trim()},
+  );
+  return email is String && email.isNotEmpty ? email : null;
+}
+
 /// Сайт админки (отдельная сборка lib/main_admin.dart).
 /// Вход один раз: сессия хранится в браузере и обновляется сама, пока админ не нажмёт «Выйти».
 class AdminWebApp extends StatelessWidget {
@@ -117,8 +133,13 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       _error = null;
     });
     try {
+      final email = await resolveAdminLogin(_login.text);
+      if (email == null) {
+        setState(() => _error = 'Неверный логин или пароль');
+        return;
+      }
       await Supabase.instance.client.auth.signInWithPassword(
-        email: adminLoginEmail(_login.text),
+        email: email,
         password: _password.text,
       );
     } on AuthException catch (e) {
@@ -169,7 +190,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Почта или Telegram ID',
+                        labelText: 'Почта, @ник или Telegram ID',
                         prefixIcon: Icon(Icons.person_outline),
                       ),
                     ),

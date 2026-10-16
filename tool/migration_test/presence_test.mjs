@@ -76,5 +76,16 @@ const anonDenied = async (sql) => { await db.exec('set role anon'); try { await 
 check('anon не вызывает heartbeat', await anonDenied(`select master_heartbeat('online', 'v', 'w', 'd', null)`));
 check('anon не читает присутствие', await anonDenied(`select * from master_presence`));
 
+// Вход на сайт по нику: почта выдаётся только для админа.
+await db.query(`alter table masters add column if not exists telegram_username text`);
+await db.query(`alter table masters add column if not exists role text default 'master'`);
+await db.query(`update masters set telegram_username = 'AdminNick', role = 'admin' where id = $1`, [A]);
+await db.query(`update masters set telegram_username = 'MasterNick' where id = $1`, [B]);
+const loginEmail = async (u) => { await db.exec('set role anon'); try {
+  return (await db.query(`select admin_login_email($1) as e`, [u])).rows[0].e; } finally { await db.exec('reset role'); } };
+check('ник админа → его почта', (await loginEmail('@adminnick')) === 'a@example.com');
+check('ник мастера → ничего', (await loginEmail('MasterNick')) === null);
+check('несуществующий ник → ничего', (await loginEmail('@nobody')) === null);
+
 console.log(failed ? `\nПРОВАЛЕНО: ${failed}` : '\nВСЁ ПРОЙДЕНО');
 process.exit(failed ? 1 : 0);

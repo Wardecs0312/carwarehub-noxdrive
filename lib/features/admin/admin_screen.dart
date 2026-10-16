@@ -134,8 +134,8 @@ class _SitePasswordDialogState extends State<_SitePasswordDialog> {
 
   Future<void> _save() async {
     final p = _p1.text;
-    if (p.length < 8) {
-      setState(() => _error = 'Пароль: не меньше 8 символов');
+    if (p.length < 6) {
+      setState(() => _error = 'Пароль: не меньше 6 символов');
       return;
     }
     if (p != _p2.text) {
