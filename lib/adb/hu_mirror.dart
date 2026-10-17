@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'adb_client.dart';
+import 'adb_executor.dart';
 
 /// Окно с экраном ГУ на ноутбуке мастера (scrcpy, Apache 2.0). Окно затем захватывается
 /// как источник трансляции `screen-hu`. Управление ГУ из окна выключено (`--no-control`).
@@ -29,6 +30,13 @@ class HuMirror {
   static bool get available => Platform.isWindows && File(path).existsSync();
 
   static Future<HuMirror> start(String serial) async {
+    // scrcpy и настройка касаний работают через adb shell: запертое ГУ спрашивает пароль
+    // и scrcpy не запускается. Сначала разблокировка, как перед услугами.
+    try {
+      await ProcessAdbExecutor().unlock(serial);
+    } on AdbException {
+      // не получилось — причину покажет сам scrcpy
+    }
     // Кружки касаний мастера видны админу на экране ГУ. scrcpy делает это только с
     // включённым управлением, поэтому настройка Android меняется напрямую.
     final touchesBefore = await _showTouches(serial, null);
