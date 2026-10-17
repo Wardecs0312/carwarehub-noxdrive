@@ -121,8 +121,8 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
                 ],
               ),
             ),
-            child: _confirming && preview.hasValue
-                ? _confirmView(context, preview.requireValue)
+            child: _confirming && !preview.isLoading
+                ? _confirmView(context, preview.value, preview.error)
                 : widget.confirmOnly
                 ? _confirmLoading(preview)
                 : Column(
@@ -245,9 +245,9 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
                             label: selected == 0
                                 ? 'Начать установку'
                                 : 'Начать установку (+$selected)',
-                            onPressed: preview.hasValue
-                                ? () => setState(() => _confirming = true)
-                                : null,
+                            onPressed: preview.isLoading
+                                ? null
+                                : () => setState(() => _confirming = true),
                           ),
                         ],
                       ),
@@ -269,10 +269,12 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
         style: Theme.of(context).textTheme.titleLarge,
       ),
       const SizedBox(height: 18),
-      if (preview.hasError)
-        Text('${preview.error}', style: const TextStyle(color: NoxColors.bad))
-      else
-        const LinearProgressIndicator(),
+      const LinearProgressIndicator(),
+      const SizedBox(height: 8),
+      const Text(
+        'Проверяем автомобиль и цену...',
+        style: TextStyle(color: NoxColors.metalMid, fontSize: 12),
+      ),
       const SizedBox(height: 18),
       Align(
         alignment: Alignment.centerRight,
@@ -285,9 +287,11 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
   );
 
   /// Шаг подтверждения: установка начинается только после «Подтвердить загрузку».
-  Widget _confirmView(BuildContext context, PackagePreview p) {
+  Widget _confirmView(BuildContext context, PackagePreview? p, Object? error) {
     final custom = _apks.where((a) => a.selected).toList();
-    final price = p.repeat
+    final price = p == null
+        ? 'определится при запуске'
+        : p.repeat
         ? 'бесплатно (повтор на этом автомобиле)'
         : (p.price > 0 ? '${p.price} кр.' : 'бесплатно');
     Widget row(String k, String v) => Padding(
@@ -322,6 +326,14 @@ class _PackageSetupDialogState extends ConsumerState<_PackageSetupDialog> {
             custom.isEmpty ? 'нет' : custom.map((a) => a.name).join(', '),
           ),
         row('Стоимость', price),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Не удалось заранее проверить автомобиль: $error',
+              style: const TextStyle(color: NoxColors.metalMid, fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 8),
         const Text(
           'Не отключайте кабель и не выключайте зажигание до окончания установки.',

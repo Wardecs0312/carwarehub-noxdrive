@@ -81,6 +81,9 @@ class FakeBackend implements JobBackend {
   /// Отметка об успехе не доходит до сервера (обрыв связи в конце задания).
   bool failFinishSuccess = false;
 
+  /// Расчёт цены для окна подтверждения падает (машина не ответила).
+  bool failPreview = false;
+
   @override
   Future<JobTicket> startJob({
     required String vin,
@@ -96,11 +99,14 @@ class FakeBackend implements JobBackend {
     required int serviceId,
     required int modelId,
     required DeviceInfo device,
-  }) async => const PackagePreview(
-    items: ['Яндекс Навигатор', 'Языковой пакет'],
-    price: 5,
-    repeat: false,
-  );
+  }) async {
+    if (failPreview) throw Exception('Автомобиль не ответил');
+    return const PackagePreview(
+      items: ['Яндекс Навигатор', 'Языковой пакет'],
+      price: 5,
+      repeat: false,
+    );
+  }
 
   @override
   Future<void> finishJob(

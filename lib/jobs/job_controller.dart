@@ -70,6 +70,9 @@ final appVersionProvider = FutureProvider<String>((_) async {
 
 typedef PreviewKey = ({int serviceId, int modelId, String vin});
 
+/// Сколько ждать расчёт цены в окне подтверждения.
+const previewTimeout = Duration(seconds: 25);
+
 /// Состав основного пакета для окна настройки. Читает модель/прошивку ГУ и спрашивает сервер.
 final packagePreviewProvider = FutureProvider.autoDispose
     .family<PackagePreview, PreviewKey>((ref, key) async {
@@ -79,17 +82,28 @@ final packagePreviewProvider = FutureProvider.autoDispose
           adb?.blockedHint ?? 'Подключите автомобиль по USB/ADB',
         );
       }
-      final device = await ref
-          .read(adbExecutorProvider)
-          .readDeviceInfo(adb.serial!);
-      return ref
-          .read(jobBackendProvider)
-          .preview(
-            vin: key.vin,
-            serviceId: key.serviceId,
-            modelId: key.modelId,
-            device: device,
-          );
+      final executor = ref.read(adbExecutorProvider);
+      // Сначала разблокировка: запертое ГУ ждёт пароль, и чтение данных машины висело,
+      // а с ним и окно подтверждения.
+      Future<PackagePreview> load() async {
+        await executor.unlock(adb.serial!);
+        final device = await executor.readDeviceInfo(adb.serial!);
+        return ref
+            .read(jobBackendProvider)
+            .preview(
+              vin: key.vin,
+              serviceId: key.serviceId,
+              modelId: key.modelId,
+              device: device,
+            );
+      }
+
+      return load().timeout(
+        previewTimeout,
+        onTimeout: () => throw JobException(
+          'Автомобиль не ответил за ${previewTimeout.inSeconds} секунд',
+        ),
+      );
     });
 
 /// Менеджер фонового выполнения услуги.

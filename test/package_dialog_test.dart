@@ -238,4 +238,38 @@ void main() {
     expect(find.text('Подтвердите загрузку на автомобиль'), findsNothing);
     expect(exec.calls, isEmpty);
   });
+
+  testWidgets(
+    'машина не ответила при расчёте цены: подтверждение всё равно есть и запускает услугу',
+    (tester) async {
+      final exec = FakeExecutor();
+      final backend = FakeBackend(
+        const JobTicket(
+          jobId: 'j',
+          price: 0,
+          repeat: false,
+          steps: [
+            JobStep(type: StepType.shell, title: 'Проверка', cmd: 'echo'),
+          ],
+        ),
+        const [],
+      )..failPreview = true;
+      await _open(tester, FakePicker([]), backend, exec);
+      await tester.tap(find.text('Перезагрузка автомобиля'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
+      expect(find.text('определится при запуске'), findsOneWidget);
+      expect(
+        exec.unlocks,
+        greaterThanOrEqualTo(1),
+      ); // разблокировка до чтения машины
+      expect(exec.readBeforeUnlock, isFalse);
+      expect(exec.calls, isEmpty);
+
+      await tester.tap(find.byKey(const Key('confirm-load')));
+      await tester.pumpAndSettle();
+      expect(find.text('Услуга успешно выполнена'), findsOneWidget);
+    },
+  );
 }
