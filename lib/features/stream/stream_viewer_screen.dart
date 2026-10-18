@@ -158,9 +158,9 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
         : tracks;
     // Телефон повёрнут горизонтально: одно окно на весь экран, переключение источников сверху.
     if (tracks.isNotEmpty && isLandscapePhone(MediaQuery.sizeOf(context))) {
-      final key = tracks.containsKey(_expanded)
+      final String? key = tracks.containsKey(_expanded)
           ? _expanded!
-          : preferredSource(tracks.keys);
+          : (canSplit(tracks.keys) ? null : preferredSource(tracks.keys));
       return _FullscreenView(
         tracks: tracks,
         current: key,
@@ -229,6 +229,14 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
           ? const _Message(
               'Ожидание мастера… Трансляция начнётся, когда приложение мастера получит запрос.',
             )
+          : canSplit(tracks.keys) && _expanded == null
+          ? Padding(
+              padding: const EdgeInsets.all(8),
+              child: SplitScreens(
+                tracks: tracks,
+                onTap: (k) => setState(() => _expanded = k),
+              ),
+            )
           : LayoutBuilder(
               builder: (context, c) {
                 // Телефон в портрете: окна друг под другом; ноутбук/ГУ: в ряд.
@@ -260,6 +268,66 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
   }
 }
 
+/// Есть и экран ноутбука, и экран ГУ — их можно показать рядом.
+bool canSplit(Iterable<String> keys) =>
+    keys.contains('screen-laptop') && keys.contains('screen-hu');
+
+/// Две половины: слева (или сверху на узком экране) ноутбук, справа ГУ.
+/// Камера мастера — маленьким окном в углу. Нажатие на окно разворачивает его.
+class SplitScreens extends StatelessWidget {
+  const SplitScreens({
+    super.key,
+    required this.tracks,
+    required this.onTap,
+    this.gap = 8,
+  });
+
+  final Map<String, VideoTrack> tracks;
+  final ValueChanged<String> onTap;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      final wide = c.maxWidth >= c.maxHeight;
+      Widget half(String k) => Expanded(
+        child: GestureDetector(
+          key: Key('half-$k'),
+          onTap: () => onTap(k),
+          child: _Tile(label: streamSources[k] ?? k, track: tracks[k]!),
+        ),
+      );
+      final camera = tracks['camera'];
+      return Stack(
+        children: [
+          Flex(
+            direction: wide ? Axis.horizontal : Axis.vertical,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              half('screen-laptop'),
+              SizedBox(width: gap, height: gap),
+              half('screen-hu'),
+            ],
+          ),
+          if (camera != null)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              width: (wide ? c.maxWidth : c.maxHeight) * 0.18,
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: GestureDetector(
+                  onTap: () => onTap('camera'),
+                  child: _Tile(label: streamSources['camera']!, track: camera),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+}
+
 /// Телефон в горизонтальном положении (короткая сторона экрана меньше 600).
 bool isLandscapePhone(Size size) =>
     size.width > size.height && size.shortestSide < 600;
@@ -283,10 +351,12 @@ class _FullscreenView extends StatelessWidget {
   });
 
   final Map<String, VideoTrack> tracks;
-  final String current;
+
+  /// null — ноутбук и ГУ рядом, две половины экрана.
+  final String? current;
   final DateTime? startedAt;
   final String? warning;
-  final ValueChanged<String> onSelect;
+  final ValueChanged<String?> onSelect;
   final VoidCallback onClose;
 
   @override
@@ -296,7 +366,10 @@ class _FullscreenView extends StatelessWidget {
     body: Stack(
       fit: StackFit.expand,
       children: [
-        VideoTrackRenderer(tracks[current]!, fit: VideoViewFit.contain),
+        if (current == null)
+          SplitScreens(tracks: tracks, onTap: onSelect, gap: 2)
+        else
+          VideoTrackRenderer(tracks[current]!, fit: VideoViewFit.contain),
         Positioned(
           left: 8,
           top: 8,
@@ -315,6 +388,16 @@ class _FullscreenView extends StatelessWidget {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
+                        if (canSplit(tracks.keys))
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              key: const Key('source-split'),
+                              label: const Text('Ноутбук + ГУ'),
+                              selected: current == null,
+                              onSelected: (_) => onSelect(null),
+                            ),
+                          ),
                         for (final k in tracks.keys)
                           Padding(
                             padding: const EdgeInsets.only(right: 6),

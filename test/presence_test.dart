@@ -95,4 +95,10 @@ void main() {
     expect(publishOptionsFor('screen-hu').name, 'screen-hu');
     expect(publishOptionsFor('camera').simulcast, isTrue);
   });
+
+  test('ноутбук и ГУ показываются рядом, когда есть оба экрана', () {
+    expect(canSplit(['screen-laptop', 'screen-hu', 'camera']), isTrue);
+    expect(canSplit(['screen-laptop', 'camera']), isFalse);
+    expect(canSplit(['screen-hu']), isFalse);
+  });
 }
