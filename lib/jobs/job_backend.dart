@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'job_models.dart';
+import 'payload_store.dart';
 
 /// Серверная часть выполнения услуги: биллинг, VIN, шаги сценария и доступ к зашифрованным файлам.
 abstract class JobBackend {
@@ -30,8 +31,18 @@ abstract class JobBackend {
 
   Future<void> requestRefund(String jobId, String reason);
 
-  /// Зашифрованный поток файла из приватного хранилища. На диск не пишется.
+  /// Зашифрованный поток файла из приватного хранилища (на диске хранится только
+  /// в зашифрованном виде, в кэше программы).
   Stream<List<int>> openPayload(String storagePath);
+
+  /// Начать заранее скачивать файлы следующих шагов.
+  void prefetch(Iterable<String> storagePaths);
+
+  /// Файл не прошёл проверку при расшифровке: убрать из кэша, чтобы скачать заново.
+  Future<void> invalidatePayload(String storagePath);
+
+  /// Убрать из кэша самые старые файлы, если он стал слишком большим.
+  Future<void> trimCache();
 }
 
 const _errorTexts = {
@@ -126,25 +137,65 @@ class SupabaseJobBackend implements JobBackend {
     }
   }
 
-  @override
-  Stream<List<int>> openPayload(String storagePath) async* {
-    final url = await _db.storage
+  /// Одно соединение на все файлы (раньше на каждый файл открывалось новое).
+  static final _http = HttpClient()
+    ..idleTimeout = const Duration(seconds: 30)
+    ..maxConnectionsPerHost = 8;
+
+  static final store = PayloadStore(
+    Directory(
+      '${Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path}'
+      '${Platform.pathSeparator}nox.drive${Platform.pathSeparator}payload-cache',
+    ),
+    _downloadTo,
+  );
+
+  static Future<void> _downloadTo(String storagePath, File target) async {
+    final url = await Supabase.instance.client.storage
         .from('payloads')
-        .createSignedUrl(storagePath, 300);
-    final client = HttpClient();
-    try {
-      final req = await client.getUrl(Uri.parse(url));
-      final resp = await req.close();
-      if (resp.statusCode != 200) {
-        throw JobException(
-          'Не удалось получить файл с сервера (код ${resp.statusCode})',
-        );
+        .createSignedUrl(storagePath, 600);
+    for (var attempt = 1; ; attempt++) {
+      try {
+        final req = await _http.getUrl(Uri.parse(url));
+        final resp = await req.close();
+        if (resp.statusCode != 200) {
+          await resp.drain<void>();
+          throw JobException(
+            'Не удалось получить файл с сервера (код ${resp.statusCode})',
+          );
+        }
+        final sink = target.openWrite();
+        try {
+          await resp.pipe(sink);
+        } catch (_) {
+          await sink.close();
+          rethrow;
+        }
+        return;
+      } on JobException {
+        rethrow;
+      } catch (e) {
+        // Обрыв интернета посреди файла: ещё две попытки.
+        if (attempt >= 3) {
+          throw JobException('Обрыв связи при загрузке файла: $e');
+        }
+        await Future<void>.delayed(Duration(seconds: attempt * 2));
       }
-      yield* resp;
-    } finally {
-      client.close(force: true);
     }
   }
+
+  @override
+  Stream<List<int>> openPayload(String storagePath) => store.open(storagePath);
+
+  @override
+  void prefetch(Iterable<String> storagePaths) => store.prefetch(storagePaths);
+
+  @override
+  Future<void> invalidatePayload(String storagePath) =>
+      store.invalidate(storagePath);
+
+  @override
+  Future<void> trimCache() => store.trim();
 }
 
 /// Без настроенного Supabase: безопасный демо-режим, который только читает модель ГУ.
@@ -194,4 +245,13 @@ class DemoJobBackend implements JobBackend {
   @override
   Stream<List<int>> openPayload(String storagePath) =>
       Stream.error(JobException('Демо-режим: файлы недоступны'));
+
+  @override
+  void prefetch(Iterable<String> storagePaths) {}
+
+  @override
+  Future<void> invalidatePayload(String storagePath) async {}
+
+  @override
+  Future<void> trimCache() async {}
 }

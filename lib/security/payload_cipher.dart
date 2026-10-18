@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
+import 'native_aes_gcm.dart';
+
 /// Потоковое шифрование файлов AES-256-GCM блоками, чтобы расшифровывать «на лету»
 /// и не держать файл целиком (и тем более на диске).
 ///
@@ -70,10 +72,20 @@ class PayloadCipher {
     List<int>? base;
     var counter = 0;
     const full = chunkSize + _tagLen;
+    // Быстрая расшифровка средствами Windows; если недоступна — прежняя реализация.
+    final native = NativeAesGcm.create(key);
 
     Future<List<int>> open(Uint8List block, bool last) async {
       if (block.length < _tagLen) {
         throw const FormatException('Повреждённый блок данных');
+      }
+      if (native != null) {
+        return native.decrypt(
+          Uint8List.sublistView(block, 0, block.length - _tagLen),
+          _nonce(base!, counter++),
+          [last ? 1 : 0],
+          Uint8List.sublistView(block, block.length - _tagLen),
+        );
       }
       try {
         return await _algo.decrypt(
@@ -90,33 +102,37 @@ class PayloadCipher {
       }
     }
 
-    await for (final part in source) {
-      buf.add(part);
-      var data = buf.takeBytes();
-      var offset = 0;
-      if (base == null) {
-        if (data.length < _headerLen) {
-          buf.add(data);
-          continue;
+    try {
+      await for (final part in source) {
+        buf.add(part);
+        var data = buf.takeBytes();
+        var offset = 0;
+        if (base == null) {
+          if (data.length < _headerLen) {
+            buf.add(data);
+            continue;
+          }
+          if (!const ListEquality().equals(data.sublist(0, 4), _magic)) {
+            throw const FormatException('Неизвестный формат файла');
+          }
+          base = data.sublist(4, _headerLen);
+          offset = _headerLen;
         }
-        if (!const ListEquality().equals(data.sublist(0, 4), _magic)) {
-          throw const FormatException('Неизвестный формат файла');
+        // Блок можно считать «не последним» только когда за ним есть ещё данные.
+        while (data.length - offset > full) {
+          yield await open(
+            Uint8List.sublistView(data, offset, offset + full),
+            false,
+          );
+          offset += full;
         }
-        base = data.sublist(4, _headerLen);
-        offset = _headerLen;
+        buf.add(Uint8List.sublistView(data, offset));
       }
-      // Блок можно считать «не последним» только когда за ним есть ещё данные.
-      while (data.length - offset > full) {
-        yield await open(
-          Uint8List.sublistView(data, offset, offset + full),
-          false,
-        );
-        offset += full;
-      }
-      buf.add(Uint8List.sublistView(data, offset));
+      if (base == null) throw const FormatException('Файл пуст или обрезан');
+      yield await open(buf.takeBytes(), true);
+    } finally {
+      native?.dispose();
     }
-    if (base == null) throw const FormatException('Файл пуст или обрезан');
-    yield await open(buf.takeBytes(), true);
   }
 }
 

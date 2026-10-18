@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -169,6 +170,12 @@ class JobController extends Notifier<JobState> {
       final main = steps.where((s) => s.type != StepType.reboot).toList();
       final tail = steps.where((s) => s.type == StepType.reboot).toList();
 
+      // Файлы всех шагов начинают скачиваться сразу, параллельно с установкой.
+      backend.prefetch([
+        for (final s in main)
+          if (s.storagePath != null) s.storagePath!,
+      ]);
+
       Future<void> runScenarioStep(int index, JobStep step) async {
         final title = step.title.isEmpty
             ? 'Шаг ${index + 1} из ${steps.length}'
@@ -180,7 +187,17 @@ class JobController extends Notifier<JobState> {
         report(0);
         log.writeln('[${index + 1}/${steps.length}] $title');
         try {
-          await _runStep(step, adb.serial!, executor, backend, report, log);
+          try {
+            await _runStep(step, adb.serial!, executor, backend, report, log);
+          } on FormatException catch (e) {
+            // Файл в кэше повреждён: скачиваем заново и повторяем шаг один раз.
+            final path = step.storagePath;
+            if (path == null) rethrow;
+            log.writeln('Файл повреждён, скачиваю заново: $e');
+            await backend.invalidatePayload(path);
+            report(0);
+            await _runStep(step, adb.serial!, executor, backend, report, log);
+          }
         } catch (e) {
           // ГУ на секунду пропало из ADB (кабель, сон ГУ): ждём его и повторяем шаг один раз.
           if (!isDeviceLost(e) || step.type == StepType.reboot) rethrow;
@@ -260,6 +277,9 @@ class JobController extends Notifier<JobState> {
         refundable: charged,
       );
       ref.invalidate(balanceProvider);
+    } finally {
+      // Кэш файлов не растёт бесконечно: старые удаляются после услуги.
+      unawaited(backend.trimCache().catchError((_) {}));
     }
   }
 

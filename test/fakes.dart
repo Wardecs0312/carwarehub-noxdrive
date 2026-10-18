@@ -124,6 +124,21 @@ class FakeBackend implements JobBackend {
     refundRequested = true;
   }
 
+  /// Какие файлы программа попросила скачать заранее.
+  final prefetched = <String>[];
+  final invalidated = <String>[];
+
+  @override
+  void prefetch(Iterable<String> storagePaths) =>
+      prefetched.addAll(storagePaths);
+
+  @override
+  Future<void> invalidatePayload(String storagePath) async =>
+      invalidated.add(storagePath);
+
+  @override
+  Future<void> trimCache() async {}
+
   @override
   Stream<List<int>> openPayload(String storagePath) async* {
     for (var i = 0; i < encrypted.length; i += 5000) {
