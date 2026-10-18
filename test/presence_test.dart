@@ -89,11 +89,14 @@ void main() {
     },
   );
 
-  test('экраны идут одним качеством, камера — как обычно', () {
-    expect(publishOptionsFor('screen-laptop').simulcast, isFalse);
-    expect(publishOptionsFor('screen-hu').simulcast, isFalse);
+  test('трансляция: стандартные настройки качества, сначала камера', () {
     expect(publishOptionsFor('screen-hu').name, 'screen-hu');
-    expect(publishOptionsFor('camera').simulcast, isTrue);
+    expect(publishOptionsFor('screen-laptop').simulcast, isTrue);
+    expect(publishOrder(['screen-hu', 'screen-laptop', 'camera']), [
+      'camera',
+      'screen-laptop',
+      'screen-hu',
+    ]);
   });
 
   test('ноутбук и ГУ показываются рядом, когда есть оба экрана', () {

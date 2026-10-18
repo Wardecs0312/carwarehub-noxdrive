@@ -111,8 +111,13 @@ class _StreamViewerScreenState extends State<StreamViewerScreen> {
   Future<void> _connect() async {
     try {
       final access = await fetchStreamAccess(masterId: widget.masterId);
-      final room = Room(roomOptions: const RoomOptions(adaptiveStream: true));
+      // Без «умной» паузы: экраны мастера всегда в лучшем качестве (раньше нижний слой
+      // экрана мог не отправляться, и админ видел пустое окно).
+      final room = Room(roomOptions: const RoomOptions(adaptiveStream: false));
       _events = room.createListener()
+        ..on<TrackSubscribedEvent>((e) {
+          unawaited(e.publication.setVideoQuality(VideoQuality.HIGH));
+        })
         ..on<RoomEvent>((_) {
           if (mounted) setState(() {});
         });

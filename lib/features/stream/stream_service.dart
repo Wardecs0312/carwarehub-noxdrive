@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
@@ -67,16 +68,40 @@ bool get _windows => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
 /// Экраны (ноутбук, ГУ) идут одним качеством без simulcast: у неподвижного экрана
 /// нижние слои simulcast могли не отправляться, и админ видел пустое окно.
-VideoPublishOptions publishOptionsFor(String source) => source == 'camera'
-    ? VideoPublishOptions(name: source)
-    : VideoPublishOptions(
-        name: source,
-        simulcast: false,
-        videoEncoding: const VideoEncoding(
-          maxBitrate: 2500000,
-          maxFramerate: 15,
-        ),
-      );
+VideoPublishOptions publishOptionsFor(String source) =>
+    VideoPublishOptions(name: source);
+
+/// Порядок отправки: сначала камера (проверенно работает), потом экраны.
+List<String> publishOrder(Iterable<String> sources) {
+  const order = ['camera', 'screen-laptop', 'screen-hu'];
+  int rank(String s) => order.contains(s) ? order.indexOf(s) : order.length;
+  return sources.toList()..sort((a, b) => rank(a).compareTo(rank(b)));
+}
+
+/// Журнал трансляции у мастера (%APPDATA%\nox.drive\stream.log): по нему видно,
+/// на каком шаге рвётся связь с сервером трансляций. Последние строки уходят админу.
+class StreamLog {
+  static final _lines = <String>[];
+
+  static void add(String line) {
+    final t = DateTime.now().toIso8601String().substring(11, 19);
+    final s = '$t $line';
+    _lines.add(s);
+    if (_lines.length > 200) _lines.removeAt(0);
+    debugPrint('stream: $s');
+    if (kIsWeb) return;
+    try {
+      final dir = Platform.environment['APPDATA'];
+      if (dir == null) return;
+      File('$dir\\nox.drive\\stream.log')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('$s\n', mode: FileMode.append);
+    } catch (_) {}
+  }
+
+  static String tail([int n = 4]) =>
+      _lines.skip(_lines.length > n ? _lines.length - n : 0).join(' | ');
+}
 
 /// Публикация трансляции мастером. Одна комната на мастера: `master-<uuid>`.
 class StreamPublisher {
@@ -110,6 +135,36 @@ class StreamPublisher {
     if (changed && _room == room) await _reportErrors(id);
   }
 
+  EventsListener<RoomEvent>? _listener;
+
+  /// Отправка дорожки. Если сервер не ответил (связь переподключалась), ждём
+  /// восстановления связи и пробуем ещё раз.
+  Future<void> _publish(Room room, LocalVideoTrack track, String name) async {
+    StreamLog.add('отправка $name');
+    try {
+      await room.localParticipant!.publishVideoTrack(
+        track,
+        publishOptions: publishOptionsFor(name),
+      );
+    } on TrackPublishException catch (e) {
+      StreamLog.add(
+        '$name: сервер не ответил ($e), состояние ${room.connectionState}',
+      );
+      for (
+        var i = 0;
+        i < 30 && room.connectionState != ConnectionState.connected;
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      StreamLog.add('$name: повтор, состояние ${room.connectionState}');
+      await room.localParticipant!.publishVideoTrack(
+        track,
+        publishOptions: publishOptionsFor(name),
+      );
+    }
+  }
+
   /// Источники, которые запросил админ в текущей трансляции.
   List<String> _requested = const [];
 
@@ -141,16 +196,30 @@ class StreamPublisher {
     await stop();
     final access = await fetchStreamAccess();
     final room = Room(
-      roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true),
+      roomOptions: const RoomOptions(adaptiveStream: false, dynacast: false),
     );
+    StreamLog.add('подключение к ${access.url}');
+    _listener?.dispose();
+    _listener = room.createListener()
+      ..on<RoomReconnectingEvent>(
+        (_) => StreamLog.add('связь прервалась, переподключение'),
+      )
+      ..on<RoomReconnectedEvent>((_) => StreamLog.add('переподключились'))
+      ..on<RoomDisconnectedEvent>(
+        (e) => StreamLog.add('отключены: ${e.reason}'),
+      )
+      ..on<LocalTrackPublishedEvent>(
+        (e) => StreamLog.add('отправляется: ${e.publication.name}'),
+      );
     await room.connect(access.url, access.token);
+    StreamLog.add('подключены, состояние ${room.connectionState}');
     _room = room;
     this.sessionId = sessionId;
     _requested = List.of(sources);
 
     final published = <String>[];
     lastErrors = {};
-    for (final s in sources) {
+    for (final s in publishOrder(sources)) {
       if (!canPublishSource(s)) {
         lastErrors[s] = s == 'screen-hu'
             ? 'нет scrcpy рядом с программой (папка scrcpy)'
@@ -159,17 +228,15 @@ class StreamPublisher {
       }
       try {
         final track = await _createTrack(s);
-        await room.localParticipant!.publishVideoTrack(
-          track,
-          publishOptions: publishOptionsFor(s),
-        );
+        await _publish(room, track, s);
         if (s == 'screen-hu') _huTrack = track;
         _published[s] = track;
         published.add(s);
       } catch (e) {
         // Нет веб-камеры и т.п.: остальные источники продолжают работать,
-        // а причина видна мастеру и администратору.
-        lastErrors[s] = '$e';
+        // а причина видна мастеру и администратору (с последними строками журнала).
+        StreamLog.add('$s не отправлен: $e');
+        lastErrors[s] = '$e. Журнал: ${StreamLog.tail()}';
       }
     }
     await _reportErrors(sessionId);
@@ -250,10 +317,7 @@ class StreamPublisher {
         await track.stop();
         return;
       }
-      await room.localParticipant!.publishVideoTrack(
-        track,
-        publishOptions: publishOptionsFor('screen-hu'),
-      );
+      await _publish(room, track, 'screen-hu');
       _huTrack = track;
       _published['screen-hu'] = track;
       lastErrors.remove('screen-hu');
@@ -286,6 +350,9 @@ class StreamPublisher {
   }
 
   Future<void> stop() async {
+    _listener?.dispose();
+    _listener = null;
+    if (_room != null) StreamLog.add('трансляция остановлена');
     _huTrack = null;
     _published.clear();
     _requested = const [];
