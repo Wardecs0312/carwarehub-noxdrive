@@ -6,6 +6,7 @@ import '../core/json.dart';
 
 import '../jobs/job_models.dart';
 import 'adb_client.dart';
+import 'adb_sync.dart';
 
 /// Выполнение команд на головном устройстве. Всё, что нужно сценариям, проходит через этот интерфейс,
 /// поэтому в тестах он заменяется заглушкой, а позже может быть заменён нативным ADB на Dart.
@@ -21,6 +22,27 @@ abstract class AdbExecutor {
     List<String> remoteArgs,
     Stream<List<int>> data,
   );
+
+  /// Установка APK: файл копируется на ГУ (как `adb install`), затем `pm install`.
+  /// [onProgress] — сколько байт уже передано.
+  Future<void> install(
+    String serial,
+    Stream<List<int>> data, {
+    bool grant = false,
+    bool downgrade = false,
+    void Function(int sent)? onProgress,
+  });
+
+  /// Запись файла на ГУ по пути [remotePath] (как `adb push`).
+  Future<void> push(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath, {
+    void Function(int sent)? onProgress,
+  });
+
+  /// Мастер нажал «Остановить»: прервать всё, что сейчас передаётся и выполняется.
+  void cancel();
 
   Future<void> reboot(String serial);
 
@@ -82,6 +104,26 @@ class UnsupportedAdbExecutor implements AdbExecutor {
   ) async => _fail();
 
   @override
+  Future<void> install(
+    String serial,
+    Stream<List<int>> data, {
+    bool grant = false,
+    bool downgrade = false,
+    void Function(int sent)? onProgress,
+  }) async => _fail();
+
+  @override
+  Future<void> push(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath, {
+    void Function(int sent)? onProgress,
+  }) async => _fail();
+
+  @override
+  void cancel() {}
+
+  @override
   Future<void> reboot(String serial) async => _fail();
 
   @override
@@ -92,9 +134,119 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 /// приложение GUI-типа, `Process.start` не создаёт видимой консоли для дочернего процесса.
 /// (Нужно проверить на целевом ПК с Windows.)
 class ProcessAdbExecutor implements AdbExecutor {
-  ProcessAdbExecutor({String? adbPath}) : _adb = adbPath ?? resolveAdbPath();
+  ProcessAdbExecutor({String? adbPath, AdbSync? sync})
+    : _adb = adbPath ?? resolveAdbPath(),
+      _sync = sync ?? AdbSync();
 
   final String _adb;
+  final AdbSync _sync;
+
+  /// Процессы adb, которые сейчас идут (для «Остановить»).
+  final _procs = <Process>{};
+
+  /// Сколько ждать, если данные перестали уходить на ГУ.
+  static const stallTimeout = Duration(seconds: 60);
+
+  /// Сколько ждать сам `pm install` после копирования файла.
+  static const installTimeout = Duration(minutes: 5);
+
+  @override
+  void cancel() {
+    _sync.cancel();
+    for (final p in _procs.toList()) {
+      p.kill();
+    }
+    _procs.clear();
+  }
+
+  /// Запуск adb с учётом «Остановить» и таймаута (процесс убивается, а не остаётся висеть).
+  Future<ProcessResult> _tracked(List<String> args, Duration timeout) async {
+    final p = await Process.start(_adb, args);
+    _procs.add(p);
+    final out = <int>[];
+    final err = <int>[];
+    final outDone = p.stdout.forEach(out.addAll);
+    final errDone = p.stderr.forEach(err.addAll);
+    try {
+      final code = await p.exitCode.timeout(timeout);
+      await Future.wait([outDone, errDone]);
+      return ProcessResult(
+        p.pid,
+        code,
+        utf8.decode(out, allowMalformed: true),
+        utf8.decode(err, allowMalformed: true),
+      );
+    } on TimeoutException {
+      p.kill();
+      rethrow;
+    } finally {
+      _procs.remove(p);
+    }
+  }
+
+  @override
+  Future<void> push(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath, {
+    void Function(int sent)? onProgress,
+  }) => _sync.push(serial, data, remotePath, onProgress: onProgress);
+
+  @override
+  Future<void> install(
+    String serial,
+    Stream<List<int>> data, {
+    bool grant = false,
+    bool downgrade = false,
+    void Function(int sent)? onProgress,
+  }) async {
+    final remote =
+        '/data/local/tmp/nox_${DateTime.now().microsecondsSinceEpoch}.apk';
+    try {
+      await _sync.push(serial, data, remote, onProgress: onProgress);
+      final ProcessResult r;
+      try {
+        r = await _tracked([
+          '-s',
+          serial,
+          'shell',
+          'pm',
+          'install',
+          '-r',
+          if (grant) '-g',
+          if (downgrade) '-d',
+          remote,
+        ], installTimeout);
+      } on TimeoutException {
+        // pm install завис на ГУ: снимаем его там же, чтобы он не мешал следующим установкам.
+        await _quiet(serial, "pkill -f '$remote'");
+        throw AdbStallException(
+          'Установка не завершилась за ${installTimeout.inMinutes} минут',
+        );
+      }
+      final text = '${r.stdout}\n${r.stderr}'.trim();
+      // adb shell возвращает вывод pm, поэтому успех проверяется по слову Success.
+      if (!RegExp(r'^Success', multiLine: true).hasMatch(text)) {
+        throw AdbException(
+          text.isEmpty ? 'Установка не удалась (код ${r.exitCode})' : text,
+        );
+      }
+    } finally {
+      await _quiet(serial, "rm -f '$remote'");
+    }
+  }
+
+  /// Служебная команда, ошибки которой не важны (уборка временных файлов).
+  Future<void> _quiet(String serial, String command) async {
+    try {
+      await _tracked([
+        '-s',
+        serial,
+        'shell',
+        command,
+      ], const Duration(seconds: 15));
+    } catch (_) {}
+  }
 
   Future<ProcessResult> _run(String serial, List<String> args) async {
     try {
@@ -148,24 +300,53 @@ class ProcessAdbExecutor implements AdbExecutor {
       'exec-in',
       ...remoteArgs,
     ]);
+    _procs.add(p);
     final out = StringBuffer();
     final outSub = p.stdout.transform(utf8.decoder).listen(out.write);
     final errSub = p.stderr.transform(utf8.decoder).listen(out.write);
+    // Сторож: если данные перестали уходить на ГУ дольше [stallTimeout], процесс снимается.
+    var last = DateTime.now();
+    var stalled = false;
+    final watch = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (DateTime.now().difference(last) > stallTimeout) {
+        stalled = true;
+        p.kill();
+      }
+    });
     try {
-      await p.stdin.addStream(data);
+      await p.stdin.addStream(
+        data.map((c) {
+          last = DateTime.now();
+          return c;
+        }),
+      );
       await p.stdin.close();
     } on SocketException {
       // ГУ закрыло поток раньше времени: причину покажет вывод процесса ниже
+    } finally {
+      watch.cancel();
+    }
+    if (stalled) {
+      _procs.remove(p);
+      await outSub.cancel();
+      await errSub.cancel();
+      throw AdbStallException(
+        'Передача на автомобиль замерла: данные не уходили ${stallTimeout.inSeconds} секунд',
+      );
     }
     final int code;
     try {
       code = await p.exitCode.timeout(const Duration(minutes: 10));
     } on TimeoutException {
       p.kill();
+      _procs.remove(p);
       await outSub.cancel();
       await errSub.cancel();
-      throw AdbException('Установка не завершилась за 10 минут');
+      throw AdbStallException(
+        'Команда на автомобиле не завершилась за 10 минут',
+      );
     }
+    _procs.remove(p);
     await outSub.cancel();
     await errSub.cancel();
     final text = out.toString();

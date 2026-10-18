@@ -1,4 +1,5 @@
 import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
+import 'package:carwarehub_noxdrive/adb/adb_sync.dart';
 import 'package:carwarehub_noxdrive/jobs/apk_picker.dart';
 import 'package:carwarehub_noxdrive/jobs/custom_apk_store.dart';
 import 'package:carwarehub_noxdrive/jobs/job_backend.dart';
@@ -59,6 +60,51 @@ class FakeExecutor implements AdbExecutor {
       throw AdbException('Failure [INSTALL_FAILED]');
     }
   }
+
+  Future<void> _deliver(String call, Stream<List<int>> data) async {
+    calls.add(call);
+    if (loseDeviceTimes > 0) {
+      loseDeviceTimes--;
+      throw AdbException("error: device 'X' not found");
+    }
+    if (stallTimes > 0) {
+      stallTimes--;
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      throw AdbStallException('Передача на автомобиль замерла');
+    }
+    final bytes = [await for (final c in data) ...c];
+    received.add(bytes);
+    if (failSizes.contains(bytes.length)) {
+      throw AdbException('Failure [INSTALL_FAILED]');
+    }
+  }
+
+  /// Столько первых передач «замрут» (сторож снимет их).
+  int stallTimes = 0;
+  int cancels = 0;
+
+  @override
+  Future<void> install(
+    String serial,
+    Stream<List<int>> data, {
+    bool grant = false,
+    bool downgrade = false,
+    void Function(int sent)? onProgress,
+  }) => _deliver(
+    ['install', if (grant) '-g', if (downgrade) '-d'].join(' '),
+    data,
+  );
+
+  @override
+  Future<void> push(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath, {
+    void Function(int sent)? onProgress,
+  }) => _deliver('push $remotePath', data);
+
+  @override
+  void cancel() => cancels++;
 
   @override
   Future<void> reboot(String serial) async => calls.add('reboot');
@@ -135,6 +181,23 @@ class FakeBackend implements JobBackend {
   @override
   Future<void> invalidatePayload(String storagePath) async =>
       invalidated.add(storagePath);
+
+  @override
+  Future<bool> fetchPayload(
+    String storagePath, {
+    void Function(int got, int? total)? onProgress,
+  }) async => false;
+
+  int heartbeats = 0;
+
+  @override
+  Future<void> heartbeat(String jobId) async => heartbeats++;
+
+  final prefetchedModels = <int>[];
+
+  @override
+  Future<void> prefetchModel(int modelId) async =>
+      prefetchedModels.add(modelId);
 
   @override
   Future<void> trimCache() async {}

@@ -1,3 +1,7 @@
+import '../../app/platform.dart';
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +27,14 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Выбрали модель — файлы её услуг скачиваются в фоне заранее (как у батника:
+    // к приезду машины всё уже на диске, услуга идёт без ожидания интернета).
+    ref.listen(selectedModelProvider, (_, m) {
+      if (m == null || !canUseAdb) return;
+      unawaited(
+        ref.read(jobBackendProvider).prefetchModel(m.id).catchError((_) {}),
+      );
+    });
     final models = ref.watch(modelsProvider);
     final selected = ref.watch(selectedModelProvider);
     final services = ref.watch(servicesProvider);

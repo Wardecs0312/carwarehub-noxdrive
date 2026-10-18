@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../adb/adb_executor.dart';
+import '../adb/adb_sync.dart';
 import '../adb/adb_status_checker.dart';
 import '../app/env.dart';
 import '../app/platform.dart';
@@ -116,6 +117,21 @@ class JobController extends Notifier<JobState> {
 
   void reset() => state = const JobState();
 
+  /// Мастер нажал «Остановить».
+  bool _cancelRequested = false;
+
+  /// Остановить идущую услугу: передача на ГУ прерывается, задание закрывается как неуспешное.
+  void cancel() {
+    if (state.phase != JobPhase.running) return;
+    _cancelRequested = true;
+    state = state.copyWith(stepTitle: 'Остановка...');
+    ref.read(adbExecutorProvider).cancel();
+  }
+
+  void _checkCancelled() {
+    if (_cancelRequested) throw JobException('Остановлено мастером');
+  }
+
   Future<void> run({
     required ServiceItem service,
     required String vin,
@@ -123,6 +139,7 @@ class JobController extends Notifier<JobState> {
     List<CustomApk> customApks = const [],
   }) async {
     if (state.phase == JobPhase.running) return;
+    _cancelRequested = false;
     final executor = ref.read(adbExecutorProvider);
     final backend = ref.read(jobBackendProvider);
     final adb = ref.read(adbStatusProvider).value;
@@ -146,6 +163,7 @@ class JobController extends Notifier<JobState> {
     final log = StringBuffer();
     String? jobId;
     var charged = false;
+    Timer? heartbeat;
     try {
       // Пункт 1 AUTOMAX KG: сначала разблокировка паролем, иначе ГУ не выполняет команды adb shell.
       state = state.copyWith(stepTitle: 'Разблокировка доступа ADB');
@@ -162,6 +180,12 @@ class JobController extends Notifier<JobState> {
       jobId = ticket.jobId;
       charged = ticket.price > 0;
       state = state.copyWith(jobId: jobId);
+      // «Задание живо»: сервер снимает задание, только если отметок нет дольше 5 минут
+      // (программу закрыли или компьютер выключился посреди услуги).
+      final id = jobId;
+      heartbeat = Timer.periodic(const Duration(seconds: 30), (_) {
+        unawaited(backend.heartbeat(id).catchError((_) {}));
+      });
 
       final steps = ticket.steps;
       final total = steps.length + customs.length;
@@ -180,15 +204,26 @@ class JobController extends Notifier<JobState> {
         final title = step.title.isEmpty
             ? 'Шаг ${index + 1} из ${steps.length}'
             : step.title;
+        String? extra;
         void report(double within) => state = state.copyWith(
-          stepTitle: title,
+          stepTitle: extra == null ? title : '$title — $extra',
           progress: (index + within) / total,
         );
+        void status(String? text) => extra = text;
         report(0);
+        _checkCancelled();
         log.writeln('[${index + 1}/${steps.length}] $title');
         try {
           try {
-            await _runStep(step, adb.serial!, executor, backend, report, log);
+            await _runStep(
+              step,
+              adb.serial!,
+              executor,
+              backend,
+              report,
+              log,
+              status,
+            );
           } on FormatException catch (e) {
             // Файл в кэше повреждён: скачиваем заново и повторяем шаг один раз.
             final path = step.storagePath;
@@ -196,9 +231,32 @@ class JobController extends Notifier<JobState> {
             log.writeln('Файл повреждён, скачиваю заново: $e');
             await backend.invalidatePayload(path);
             report(0);
-            await _runStep(step, adb.serial!, executor, backend, report, log);
+            await _runStep(
+              step,
+              adb.serial!,
+              executor,
+              backend,
+              report,
+              log,
+              status,
+            );
           }
+        } on AdbStallException catch (e) {
+          // Передача замерла: процесс уже снят, пробуем шаг ещё раз.
+          _checkCancelled();
+          log.writeln('Передача замерла, повтор: $e');
+          report(0);
+          await _runStep(
+            step,
+            adb.serial!,
+            executor,
+            backend,
+            report,
+            log,
+            status,
+          );
         } catch (e) {
+          _checkCancelled();
           // ГУ на секунду пропало из ADB (кабель, сон ГУ): ждём его и повторяем шаг один раз.
           if (!isDeviceLost(e) || step.type == StepType.reboot) rethrow;
           log.writeln('ГУ пропало из ADB, жду подключения: $e');
@@ -212,7 +270,15 @@ class JobController extends Notifier<JobState> {
             );
           }
           report(0);
-          await _runStep(step, adb.serial!, executor, backend, report, log);
+          await _runStep(
+            step,
+            adb.serial!,
+            executor,
+            backend,
+            report,
+            log,
+            status,
+          );
         }
       }
 
@@ -231,16 +297,26 @@ class JobController extends Notifier<JobState> {
           progress: (main.length + j + within) / total,
         );
         report(0);
+        _checkCancelled();
         log.writeln('[custom ${j + 1}/${customs.length}] ${apk.name}');
         try {
-          await _installCustom(apk, adb.serial!, executor, report);
+          try {
+            await _installCustom(apk, adb.serial!, executor, report);
+          } on AdbStallException catch (e) {
+            _checkCancelled();
+            log.writeln('Передача замерла, повтор: $e');
+            report(0);
+            await _installCustom(apk, adb.serial!, executor, report);
+          }
         } catch (e) {
+          _checkCancelled();
           failed.add(apk.name);
           log.writeln('Не установлен ${apk.name}: $e');
         }
       }
 
       // 3. Перезагрузка
+      _checkCancelled();
       for (var k = 0; k < tail.length; k++) {
         await runScenarioStep(main.length + customs.length + k, tail[k]);
       }
@@ -260,7 +336,8 @@ class JobController extends Notifier<JobState> {
         message: notes.isEmpty ? null : notes.join('. '),
       );
       ref.invalidate(balanceProvider);
-    } catch (e) {
+    } catch (err) {
+      final e = _cancelRequested ? JobException('Остановлено мастером') : err;
       log.writeln('ОШИБКА: $e');
       if (jobId != null && jobId != 'demo') {
         try {
@@ -278,6 +355,8 @@ class JobController extends Notifier<JobState> {
       );
       ref.invalidate(balanceProvider);
     } finally {
+      heartbeat?.cancel();
+      _cancelRequested = false;
       // Кэш файлов не растёт бесконечно: старые удаляются после услуги.
       unawaited(backend.trimCache().catchError((_) {}));
     }
@@ -310,20 +389,13 @@ class JobController extends Notifier<JobState> {
     if (!await file.exists()) throw JobException('Файл не найден');
     final size = await file.length();
     if (size == 0) throw JobException('Файл пуст');
-    var done = 0;
-    final stream = file.openRead().map((chunk) {
-      done += chunk.length;
-      report((done / size).clamp(0, 1).toDouble());
-      return chunk;
-    });
-    await executor.pipe(serial, [
-      'cmd',
-      'package',
-      'install',
-      '-r',
-      '-S',
-      '$size',
-    ], stream);
+    // Как `adb install`: файл копируется на ГУ, затем pm install (поток в установщик зависал).
+    await executor.install(
+      serial,
+      file.openRead(),
+      grant: true,
+      onProgress: (sent) => report((sent / size).clamp(0, 1).toDouble()),
+    );
     report(1);
   }
 
@@ -333,8 +405,9 @@ class JobController extends Notifier<JobState> {
     AdbExecutor executor,
     JobBackend backend,
     void Function(double) report,
-    StringBuffer log,
-  ) async {
+    StringBuffer log, [
+    void Function(String?)? onStatus,
+  ]) async {
     switch (step.type) {
       case StepType.installApk:
       case StepType.runScript:
@@ -345,39 +418,58 @@ class JobController extends Notifier<JobState> {
         if (size == null || path == null || key == null) {
           throw JobException('Сценарий повреждён: нет данных файла');
         }
+        // Сначала файл должен быть на диске (кэш). Если его ещё нет, полоска показывает
+        // скачивание (первая половина шага), затем передачу на автомобиль (вторая).
+        final downloaded = await backend.fetchPayload(
+          path,
+          onProgress: (got, all) {
+            final t = all ?? size;
+            report(t <= 0 ? 0 : (got / t).clamp(0, 1) * 0.5);
+            onStatus?.call('скачивание ${got >> 20} из ${t >> 20} МБ');
+          },
+        );
+        onStatus?.call(null);
+        final base = downloaded ? 0.5 : 0.0;
+        final span = 1 - base;
         var done = 0;
         final decrypted = PayloadCipher.fromBase64(key)
             .decrypt(backend.openPayload(path))
             .map((chunk) {
               done += chunk.length;
-              report(size == 0 ? 1 : (done / size).clamp(0, 1).toDouble());
               return chunk;
             });
+        void sent(int n) =>
+            report(size == 0 ? 1 : base + span * (n / size).clamp(0, 1));
         // APK идёт потоком: установщик Android сам отвергнет неполный или чужой файл.
         // Скрипт и файл для записи сначала принимаются целиком и сверяются, иначе при обрыве
         // на головном устройстве успела бы выполниться (или записаться) только часть.
-        final Stream<List<int>> plain;
-        if (step.type == StepType.installApk) {
-          plain = decrypted;
-        } else {
-          final bytes = await _verifiedPayload(decrypted, size, step.sha256);
-          plain = Stream.value(bytes);
+        switch (step.type) {
+          case StepType.installApk:
+            // Как `adb install`: копирование на ГУ, затем pm install. Установщик Android
+            // сам отвергнет неполный или чужой файл.
+            await executor.install(
+              serial,
+              decrypted,
+              grant: step.grantPermissions,
+              downgrade: step.downgrade,
+              onProgress: sent,
+            );
+          case StepType.pushFile:
+            // Файл сначала принимается целиком и сверяется, иначе при обрыве на ГУ
+            // записалась бы только часть.
+            final bytes = await _verifiedPayload(decrypted, size, step.sha256);
+            await executor.push(
+              serial,
+              Stream.value(bytes),
+              _remotePath(step),
+              onProgress: sent,
+            );
+          default:
+            // Скрипт тоже принимается целиком и сверяется до выполнения.
+            final bytes = await _verifiedPayload(decrypted, size, step.sha256);
+            await executor.pipe(serial, ['sh'], Stream.value(bytes));
+            sent(size);
         }
-        final args = switch (step.type) {
-          StepType.installApk => [
-            'cmd',
-            'package',
-            'install',
-            '-r',
-            if (step.grantPermissions) '-g',
-            if (step.downgrade) '-d',
-            '-S',
-            '$size',
-          ],
-          StepType.pushFile => [_pushCommand(step)],
-          _ => ['sh'],
-        };
-        await executor.pipe(serial, args, plain);
         if (done != size) throw JobException('Файл получен не полностью');
       case StepType.shell:
         try {
@@ -423,13 +515,13 @@ class JobController extends Notifier<JobState> {
     return bytes;
   }
 
-  /// Команда на ГУ, которая записывает stdin в файл: `cat > '/путь/файл'`.
-  String _pushCommand(JobStep step) {
+  /// Путь на ГУ, куда записывается файл шага.
+  String _remotePath(JobStep step) {
     final path = step.remotePath;
     if (path == null || path.isEmpty) {
       throw JobException('Сценарий повреждён: не указан путь на устройстве');
     }
-    return "cat > '${path.replaceAll("'", r"'\''")}'";
+    return path;
   }
 
   Future<void> requestRefund() async {

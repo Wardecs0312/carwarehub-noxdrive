@@ -125,6 +125,33 @@ Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
 }
 
 void main() {
+  test('передача замерла: шаг повторяется и услуга доходит до конца', () async {
+    final (c, exec, _, apk) = await _setup(withReboot: false);
+    exec.stallTimes = 1;
+    await c
+        .read(jobControllerProvider.notifier)
+        .run(service: _service, vin: _vin, model: _model);
+    final s = c.read(jobControllerProvider);
+    expect(s.phase, JobPhase.success, reason: s.message);
+    expect(exec.received.single, apk);
+    expect(exec.calls.where((x) => x.startsWith('install')), hasLength(2));
+  });
+
+  test('«Остановить»: услуга закрывается как остановленная мастером', () async {
+    final (c, exec, backend, _) = await _setup(withReboot: false);
+    exec.stallTimes = 5; // шаг всё время «замирает», мастер жмёт «Остановить»
+    final ctrl = c.read(jobControllerProvider.notifier);
+    final run = ctrl.run(service: _service, vin: _vin, model: _model);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    ctrl.cancel();
+    await run;
+    final s = c.read(jobControllerProvider);
+    expect(s.phase, JobPhase.failed);
+    expect(s.message, contains('Остановлено мастером'));
+    expect(exec.cancels, 1);
+    expect(backend.finished, [false]);
+  });
+
   test('пункт 1 AUTOMAX KG: разблокировка паролем идёт первой, до любых команд adb shell', () async {
     final (c, exec, _, _) = await _setup(withReboot: false);
     await c
@@ -240,10 +267,7 @@ void main() {
           .read(jobControllerProvider.notifier)
           .run(service: _service, vin: _vin, model: _model);
 
-      expect(
-        exec.calls.single,
-        'pipe:cmd package install -r -g -S ${apk.length}',
-      );
+      expect(exec.calls.single, 'install -g');
     },
   );
 
@@ -259,10 +283,7 @@ void main() {
       expect(s.phase, JobPhase.success);
       expect(s.progress, 1);
       expect(exec.received.single, apk);
-      expect(exec.calls, [
-        'pipe:cmd package install -r -S ${apk.length}',
-        'reboot',
-      ]);
+      expect(exec.calls, ['install', 'reboot']);
       expect(backend.finished, [true]);
     },
   );
@@ -292,12 +313,7 @@ void main() {
 
       expect(c.read(jobControllerProvider).phase, JobPhase.success);
       expect(c.read(jobControllerProvider).message, isNull);
-      expect(exec.calls, [
-        'pipe:cmd package install -r -S ${apk.length}',
-        'pipe:cmd package install -r -S 1000',
-        'pipe:cmd package install -r -S 2000',
-        'reboot',
-      ]);
+      expect(exec.calls, ['install', 'install -g', 'install -g', 'reboot']);
       expect(exec.received[1], List.filled(1000, 1));
       expect(exec.received[2], List.filled(2000, 2));
       expect(
@@ -450,8 +466,8 @@ void main() {
 
       expect(c.read(jobControllerProvider).phase, JobPhase.success);
       expect(exec.calls, [
-        r"pipe:cat > '/data/local/tmp/it'\''s.apk'",
-        'pipe:cmd package install -r -d -S 700',
+        "push /data/local/tmp/it's.apk",
+        'install -d',
         'shell:rm /data/local/tmp/*.apk',
       ]);
       expect(exec.received.first.length, 700);

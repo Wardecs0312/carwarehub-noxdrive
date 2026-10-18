@@ -38,6 +38,18 @@ abstract class JobBackend {
   /// Начать заранее скачивать файлы следующих шагов.
   void prefetch(Iterable<String> storagePaths);
 
+  /// Дождаться, пока файл окажется на диске, с ходом скачивания. true — его пришлось скачивать.
+  Future<bool> fetchPayload(
+    String storagePath, {
+    void Function(int got, int? total)? onProgress,
+  });
+
+  /// Отметка «задание живо» (раз в 30 секунд во время услуги).
+  Future<void> heartbeat(String jobId);
+
+  /// Заранее скачать в кэш все файлы услуг модели (как у батника: к приезду машины всё на диске).
+  Future<void> prefetchModel(int modelId);
+
   /// Файл не прошёл проверку при расшифровке: убрать из кэша, чтобы скачать заново.
   Future<void> invalidatePayload(String storagePath);
 
@@ -150,7 +162,11 @@ class SupabaseJobBackend implements JobBackend {
     _downloadTo,
   );
 
-  static Future<void> _downloadTo(String storagePath, File target) async {
+  static Future<void> _downloadTo(
+    String storagePath,
+    File target,
+    DownloadProgress progress,
+  ) async {
     final url = await Supabase.instance.client.storage
         .from('payloads')
         .createSignedUrl(storagePath, 600);
@@ -164,9 +180,17 @@ class SupabaseJobBackend implements JobBackend {
             'Не удалось получить файл с сервера (код ${resp.statusCode})',
           );
         }
+        final total = resp.contentLength >= 0 ? resp.contentLength : null;
+        var got = 0;
         final sink = target.openWrite();
         try {
-          await resp.pipe(sink);
+          await resp
+              .map((c) {
+                got += c.length;
+                progress(got, total);
+                return c;
+              })
+              .pipe(sink);
         } catch (_) {
           await sink.close();
           rethrow;
@@ -189,6 +213,29 @@ class SupabaseJobBackend implements JobBackend {
 
   @override
   void prefetch(Iterable<String> storagePaths) => store.prefetch(storagePaths);
+
+  @override
+  Future<bool> fetchPayload(
+    String storagePath, {
+    void Function(int got, int? total)? onProgress,
+  }) => store.fetch(storagePath, onProgress: onProgress);
+
+  @override
+  Future<void> heartbeat(String jobId) =>
+      _db.rpc('job_heartbeat', params: {'p_job': jobId});
+
+  @override
+  Future<void> prefetchModel(int modelId) async {
+    final rows = await _db.rpc(
+      'payloads_for_model',
+      params: {'p_model': modelId},
+    );
+    final paths = [
+      for (final r in rows as List)
+        if (r is String) r else if (r is Map) '${r.values.first}',
+    ];
+    store.prefetch(paths);
+  }
 
   @override
   Future<void> invalidatePayload(String storagePath) =>
@@ -248,6 +295,18 @@ class DemoJobBackend implements JobBackend {
 
   @override
   void prefetch(Iterable<String> storagePaths) {}
+
+  @override
+  Future<bool> fetchPayload(
+    String storagePath, {
+    void Function(int got, int? total)? onProgress,
+  }) async => false;
+
+  @override
+  Future<void> heartbeat(String jobId) async {}
+
+  @override
+  Future<void> prefetchModel(int modelId) async {}
 
   @override
   Future<void> invalidatePayload(String storagePath) async {}

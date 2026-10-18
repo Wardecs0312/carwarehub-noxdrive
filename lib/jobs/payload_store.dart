@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
+/// Ход скачивания: получено байт и сколько всего (если сервер сообщил размер).
+typedef DownloadProgress = void Function(int got, int? total);
+
 /// Скачивает файл сценария по пути в хранилище и пишет его в [target].
 typedef PayloadDownloader = Future<void> Function(
   String storagePath,
   File target,
+  DownloadProgress progress,
 );
 
 /// Локальный кэш файлов сценариев. Файлы лежат на диске в том виде, в каком пришли
@@ -29,6 +33,7 @@ class PayloadStore {
   final int maxBytes;
 
   final _inflight = <String, Future<File>>{};
+  final _listeners = <String, List<DownloadProgress>>{};
   var _active = 0;
   final _waiters = <Completer<void>>[];
 
@@ -44,6 +49,40 @@ class PayloadStore {
         // Без фигурных скобок remove вернул бы этот же Future, и whenComplete ждал бы сам себя.
         _inflight.remove(storagePath);
       });
+
+  /// Есть ли файл уже на диске.
+  Future<bool> isCached(String storagePath) async {
+    final f = fileFor(storagePath);
+    return await f.exists() && await f.length() > 0;
+  }
+
+  /// Дождаться файла, показывая ход скачивания. true — файл пришлось скачивать.
+  Future<bool> fetch(String storagePath, {DownloadProgress? onProgress}) async {
+    if (!_inflight.containsKey(storagePath) && await isCached(storagePath)) {
+      return false;
+    }
+    if (onProgress != null) {
+      (_listeners[storagePath] ??= []).add(onProgress);
+    }
+    try {
+      await ensure(storagePath);
+    } finally {
+      _listeners[storagePath]?.remove(onProgress);
+    }
+    return true;
+  }
+
+  /// Недокачанные файлы прошлых запусков (программу закрыли посреди загрузки).
+  Future<void> cleanupPartials() async {
+    if (!await dir.exists()) return;
+    await for (final e in dir.list()) {
+      if (e is File && e.path.endsWith('.part')) {
+        try {
+          await e.delete();
+        } catch (_) {}
+      }
+    }
+  }
 
   /// Начать заранее скачивать файлы, которые понадобятся следующими шагам.
   void prefetch(Iterable<String> paths) {
@@ -80,7 +119,11 @@ class PayloadStore {
       await dir.create(recursive: true);
       final tmp = File('${f.path}.part');
       try {
-        await _download(storagePath, tmp);
+        await _download(storagePath, tmp, (got, total) {
+          for (final l in List.of(_listeners[storagePath] ?? const [])) {
+            l(got, total);
+          }
+        });
         await tmp.rename(f.path);
       } catch (_) {
         try {

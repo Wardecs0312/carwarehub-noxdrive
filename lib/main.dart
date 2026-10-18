@@ -17,6 +17,7 @@ import 'features/presence/presence_service.dart';
 import 'features/stream/stream_banner.dart';
 import 'features/update/update_ui.dart';
 import 'features/update/updater.dart';
+import 'jobs/job_backend.dart';
 import 'jobs/job_controller.dart';
 
 Future<void> main() async {
@@ -40,6 +41,10 @@ Future<void> main() async {
   } else {
     // Остатки прошлого обновления (*.nox-old, временные папки) убираются в фоне.
     unawaited(Updater.cleanupOldFiles());
+    // Недокачанные файлы прошлого запуска (программу закрыли посреди загрузки).
+    if (Env.hasSupabase) {
+      unawaited(SupabaseJobBackend.store.cleanupPartials());
+    }
   }
   runApp(const ProviderScope(child: NoxDriveApp()));
 }
