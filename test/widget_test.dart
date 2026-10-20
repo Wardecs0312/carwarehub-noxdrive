@@ -89,7 +89,7 @@ void main() {
     );
 
     expect(find.text('Русификация и установка приложений'), findsOneWidget);
-    expect(_cards(tester).length, 6);
+    expect(_cards(tester).length, 7);
     expect(find.byKey(const Key('blocked-reason')), findsNothing);
     expect(_cards(tester).every((w) => w.onTap != null), isTrue);
   });

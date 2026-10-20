@@ -221,6 +221,49 @@ RecipePlan planCluster(List<int> apk, {required String prep}) {
   );
 }
 
+/// Путь помощника перевода приборной панели на ГУ.
+const clusterLanguageHelperPath =
+    '/data/local/tmp/c281-polymeric-language-helper.jar';
+
+/// [7] Перевод приборной панели на русский. Повторяет c281_language_switch.cmd из архива
+/// «рестайлинг чанганы»: помощник кладётся в /data/local/tmp и через app_process отправляет
+/// штатной службе polymeric_service язык приборки (ru = 23). Помощник при ошибке печатает ERROR,
+/// поэтому шаг сам проверяет его ответ, иначе задание показало бы успех без перевода.
+RecipePlan planClusterLanguage(List<int> jar, {required String prep}) {
+  final pre = _lines([prep.trim(), 'setprop vecentek.model 1']);
+  const run =
+      'CLASSPATH=$clusterLanguageHelperPath app_process /system/bin C281PolymericLanguage set ru';
+  return RecipePlan(
+    files: [
+      PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
+      PlanFile(key: 'cluster-language-helper.jar', bytes: jar, kind: 'bin'),
+    ],
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Подготовка системы',
+        'payload_key': 'pre.sh',
+      },
+      _push(
+        'Загрузка помощника',
+        'cluster-language-helper.jar',
+        clusterLanguageHelperPath,
+        hidden: true,
+      ),
+      _shell(
+        'Перевод приборной панели на русский',
+        'out=\$($run 2>&1); echo "\$out"; case "\$out" in *ERROR*) exit 1;; esac',
+      ),
+      _shell(
+        'Очистка временных файлов',
+        'rm -f $clusterLanguageHelperPath',
+        hidden: true,
+        ignoreErrors: true,
+      ),
+    ], ids),
+  );
+}
+
 /// [2] Голосовое управление. Повторяет ветку :voice батника: файлы кладутся в /data/local/tmp,
 /// SpeechHMI устанавливается, затем всё переносится в /resources/appdata/tinnove/, временные файлы удаляются.
 RecipePlan planVoice(Archive zip, {required String prep}) {

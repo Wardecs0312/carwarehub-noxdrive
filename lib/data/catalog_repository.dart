@@ -162,6 +162,12 @@ const _demoServices = [
     title: 'Вывод приложений на приборную панель',
     priceCredits: 0,
   ),
+  ServiceItem(
+    id: 7,
+    code: 'clusterlang',
+    title: 'Перевод приборной панели',
+    priceCredits: 0,
+  ),
 ];
 
 final catalogRepositoryProvider = Provider((_) => CatalogRepository());

@@ -8,8 +8,9 @@
 //   dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip \
 //       --prep tool/local/prep.sh --models all [--firmware '%'] [--dry-run]
 //
-//   --recipe  russify | voice | sysapps | cluster
-//   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk)
+//   --recipe  russify | voice | sysapps | cluster | clusterlang
+//   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk,
+//             для clusterlang сам c281-polymeric-language-helper.jar)
 //   --prep    файл с командой доступа ADB (строка с disable-verify), только у администратора, папка tool/local/ не в git
 //   --models  all или коды моделей через запятую (q05,uni-z,...)
 //   --firmware шаблон LIKE для ro.build.display.id головного устройства ('%' = любая прошивка)
@@ -117,7 +118,7 @@ Future<void> main(List<String> argv) async {
   if (recipe == null || source == null) {
     _fail('Нужны параметры --recipe и --source. См. описание в начале файла.');
   }
-  const known = ['russify', 'voice', 'sysapps', 'cluster'];
+  const known = ['russify', 'voice', 'sysapps', 'cluster', 'clusterlang'];
   if (!known.contains(recipe)) {
     _fail('Неизвестный рецепт $recipe. Доступны: ${known.join(', ')}');
   }
@@ -154,6 +155,7 @@ Future<void> main(List<String> argv) async {
   try {
     plan = switch (recipe) {
       'cluster' => planCluster(data, prep: prep),
+      'clusterlang' => planClusterLanguage(data, prep: prep),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),
       _ => planVoice(ZipDecoder().decodeBytes(data), prep: prep),

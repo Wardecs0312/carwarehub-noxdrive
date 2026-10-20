@@ -218,4 +218,32 @@ void main() {
       '$_prep\nsetprop vecentek.model 1\n',
     );
   });
+
+  test('[7] перевод приборки: помощник в /data/local/tmp, set ru, ошибка помощника роняет шаг', () {
+    final plan = planClusterLanguage([7, 7], prep: _prep);
+    final steps = plan.steps(_ids(plan));
+    expect(steps.map((s) => s['type']), [
+      'run_script',
+      'push_file',
+      'shell',
+      'shell',
+    ]);
+    expect(steps[1]['remote_path'], clusterLanguageHelperPath);
+    expect(steps[1]['payload_id'], 'id:cluster-language-helper.jar');
+    final run = steps[2]['cmd'] as String;
+    expect(
+      run,
+      contains(
+        'CLASSPATH=$clusterLanguageHelperPath app_process /system/bin C281PolymericLanguage set ru',
+      ),
+    );
+    expect(run, contains('*ERROR*) exit 1'));
+    expect(steps[2]['hidden'], isNull);
+    expect(steps[3]['cmd'], 'rm -f $clusterLanguageHelperPath');
+    expect(steps[3]['ignore_errors'], true);
+    expect(
+      String.fromCharCodes(plan.files.first.bytes),
+      '$_prep\nsetprop vecentek.model 1\n',
+    );
+  });
 }

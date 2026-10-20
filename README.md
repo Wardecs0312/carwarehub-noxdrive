@@ -64,6 +64,7 @@ flutter build web --release --no-web-resources-cdn \
 | [4] Перезагрузка | `0004_seed_scenarios.sql`: `adb reboot` |
 | [5] Системные приложения | `--recipe sysapps`: все .apk из `firmware/` с `-r -d`, затем три `cmd overlay enable` |
 | [6] Приборная панель | `--recipe cluster`: подготовка (как в [2] и [5]), затем один .apk с `-r -g` |
+| [7] Перевод приборной панели | `--recipe clusterlang --source c281-polymeric-language-helper.jar`: подготовка, помощник в /data/local/tmp, `app_process ... C281PolymericLanguage set ru` (русский = 23), очистка. Источник: архив «рестайлинг чанганы». Входит в «Обычный доступ», у Q05 выключен. Нужен ли `adb root` (по инструкции архива), не проверено на машине |
 
 Публикация (на компьютере администратора, ключ service_role только в переменных окружения):
 
