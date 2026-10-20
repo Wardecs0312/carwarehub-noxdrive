@@ -474,6 +474,38 @@ void main() {
       expect(backend.finished, [true]);
     });
 
+    test('на машине версия новее (VERSION_DOWNGRADE): шаг пропускается, задание идёт дальше', () async {
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(type: StepType.installApk, title: 'Установка: WT_VehicleCenter'),
+        JobStep(type: StepType.shell, title: 'Дальше', cmd: 'echo next'),
+      ]);
+      exec.failSizes.add(700);
+      exec.installFailure = 'Failure [INSTALL_FAILED_VERSION_DOWNGRADE]';
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
+      expect(exec.calls, ['install', 'shell:echo next']);
+      expect(backend.finished, [true]);
+      expect(backend.logs.single, contains(newerInstalledNote));
+    });
+
+    test('другая ошибка установки по-прежнему прерывает задание', () async {
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(type: StepType.installApk, title: 'Установка'),
+        JobStep(type: StepType.shell, title: 'Дальше', cmd: 'echo next'),
+      ]);
+      exec.failSizes.add(700);
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(c.read(jobControllerProvider).phase, JobPhase.failed);
+      expect(exec.calls, ['install']);
+      expect(backend.finished, [false]);
+    });
+
     test('shell без ignore_errors прерывает задание', () async {
       final (c, exec, backend) = await setupSteps(const [
         JobStep(

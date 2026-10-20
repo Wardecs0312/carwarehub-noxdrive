@@ -75,9 +75,12 @@ class FakeExecutor implements AdbExecutor {
     final bytes = [await for (final c in data) ...c];
     received.add(bytes);
     if (failSizes.contains(bytes.length)) {
-      throw AdbException('Failure [INSTALL_FAILED]');
+      throw AdbException(installFailure);
     }
   }
+
+  /// Ответ установщика при ошибке установки (failSizes).
+  String installFailure = 'Failure [INSTALL_FAILED]';
 
   /// Столько первых передач «замрут» (сторож снимет их).
   int stallTimes = 0;
@@ -162,7 +165,11 @@ class FakeBackend implements JobBackend {
   }) async {
     if (success && failFinishSuccess) throw Exception('нет связи');
     finished.add(success);
+    logs.add(log);
   }
+
+  /// Журналы, отправленные при закрытии заданий.
+  final logs = <String>[];
 
   @override
   Future<void> requestRefund(String jobId, String reason) async {

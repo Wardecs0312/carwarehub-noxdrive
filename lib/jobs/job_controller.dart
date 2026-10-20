@@ -16,6 +16,14 @@ import '../security/payload_cipher.dart';
 import 'job_backend.dart';
 import 'job_models.dart';
 
+/// Установщик Android отказал, потому что на машине уже стоит более новая версия приложения.
+bool isNewerAlreadyInstalled(Object e) =>
+    e.toString().contains('INSTALL_FAILED_VERSION_DOWNGRADE');
+
+/// Строка журнала для пропущенной установки.
+const newerInstalledNote =
+    'На машине уже установлена более новая версия, шаг пропущен';
+
 enum JobPhase { idle, running, success, failed }
 
 class JobState {
@@ -390,12 +398,16 @@ class JobController extends Notifier<JobState> {
     final size = await file.length();
     if (size == 0) throw JobException('Файл пуст');
     // Как `adb install`: файл копируется на ГУ, затем pm install (поток в установщик зависал).
-    await executor.install(
-      serial,
-      file.openRead(),
-      grant: true,
-      onProgress: (sent) => report((sent / size).clamp(0, 1).toDouble()),
-    );
+    try {
+      await executor.install(
+        serial,
+        file.openRead(),
+        grant: true,
+        onProgress: (sent) => report((sent / size).clamp(0, 1).toDouble()),
+      );
+    } on AdbException catch (e) {
+      if (!isNewerAlreadyInstalled(e)) rethrow;
+    }
     report(1);
   }
 
@@ -447,13 +459,22 @@ class JobController extends Notifier<JobState> {
           case StepType.installApk:
             // Как `adb install`: копирование на ГУ, затем pm install. Установщик Android
             // сам отвергнет неполный или чужой файл.
-            await executor.install(
-              serial,
-              decrypted,
-              grant: step.grantPermissions,
-              downgrade: step.downgrade,
-              onProgress: sent,
-            );
+            try {
+              await executor.install(
+                serial,
+                decrypted,
+                grant: step.grantPermissions,
+                downgrade: step.downgrade,
+                onProgress: sent,
+              );
+            } on AdbException catch (e) {
+              // На машине уже стоит более новая версия (так бывает на свежих прошивках).
+              // Батник в этом случае шёл дальше, задание тоже не роняем.
+              if (!isNewerAlreadyInstalled(e)) rethrow;
+              log.writeln(newerInstalledNote);
+              report(1);
+              return;
+            }
           case StepType.pushFile:
             // Файл сначала принимается целиком и сверяется, иначе при обрыве на ГУ
             // записалась бы только часть.
