@@ -15,6 +15,7 @@ import '../../data/catalog_repository.dart';
 import '../../data/models.dart';
 import '../../jobs/job_controller.dart';
 import '../../jobs/job_models.dart';
+import '../diagnostics/diagnostics_ui.dart';
 import '../jobs/job_dialog.dart';
 import '../jobs/package_setup_dialog.dart';
 import '../shell/nox_header.dart';
@@ -147,6 +148,12 @@ class HomeScreen extends ConsumerWidget {
                           error: (e, _) =>
                               Text('Не удалось загрузить услуги: $e'),
                         ),
+                      // Диагностика не входит в платные услуги: доступна без модели и VIN.
+                      if (canUseAdb) ...[
+                        const SizedBox(height: 28),
+                        const _SectionTitle('Диагностика'),
+                        DiagnosticsButton(vin: ref.watch(vinProvider)),
+                      ],
                     ],
                   ),
                 ),
