@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../tool/package_builder.dart';
@@ -246,4 +250,128 @@ void main() {
       '$_prep\nsetprop vecentek.model 1\n',
     );
   });
+  group('Q07 (FunkyDev Q07 Language Tool)', () {
+    Archive q07Zip({bool badHash = false, int count = 36}) {
+      final zip = Archive();
+      final rows = <String>[
+        '"Order","Apk","OverlayPackage","TargetPackage","Label","SHA256"',
+      ];
+      for (var i = 1; i <= count; i++) {
+        final bytes = utf8.encode('apk $i');
+        zip.addFile(ArchiveFile('q07 ru/apks/A$i.apk', bytes.length, bytes));
+        final sum = badHash && i == 5
+            ? '0' * 64
+            : crypto.sha256.convert(bytes).toString().toUpperCase();
+        rows.add('"$i","A$i.apk","com.o$i.azru","com.t$i","L$i","$sum"');
+      }
+      final csv = utf8.encode('﻿${rows.join('\r\n')}\r\n');
+      zip.addFile(ArchiveFile('q07 ru/overlays.csv', csv.length, csv));
+      final legacy = utf8.encode(
+        '"OverlayPackage","TargetPackage","Label"\r\n"com.old.ru","com.t1","Old"\r\n',
+      );
+      zip.addFile(
+        ArchiveFile('q07 ru/legacy_overlays.csv', legacy.length, legacy),
+      );
+      for (final lang in ['az', 'ru']) {
+        for (final n in [
+          'lamb_json.json',
+          'cast_video_kara_json.json',
+          'guide_json.json',
+        ]) {
+          final b = utf8.encode('{"$lang":"$n"}');
+          zip.addFile(ArchiveFile('q07 ru/dlp_dynamic/$lang/$n', b.length, b));
+        }
+      }
+      return zip;
+    }
+
+    test('кнопка 1: подготовка, остановка, 36 установок, DLP, включение, возврат настроек', () {
+      final plan = planQ07Prepare(q07Zip());
+      final steps = plan.steps(_ids(plan));
+      expect(steps.first['title'], 'Подготовка системы');
+      expect(steps[1]['title'], 'Остановка прежнего перевода');
+      expect(steps.where((s) => s['type'] == 'install_apk').length, 36);
+      expect(
+        steps
+            .where((s) => s['type'] == 'install_apk')
+            .every((s) => s['grant'] != true),
+        isTrue,
+      );
+      final pushes = steps
+          .where((s) => s['type'] == 'push_file')
+          .map((s) => s['remote_path']);
+      expect(
+        pushes,
+        contains('/resources/custormer/ivi/Lamb/skin_ru/lamb_json.json'),
+      );
+      expect(pushes.length, 6);
+      expect(steps[steps.length - 2]['title'], 'Включение перевода');
+      expect(steps.last['title'], 'Возврат настроек системы');
+      final enable = utf8.decode(
+        plan.files.firstWhere((f) => f.key == 'enable.sh').bytes,
+      );
+      expect(enable, contains('cmd overlay disable --user "\$usr" com.old.ru'));
+      expect(enable, contains('en com.o36.azru com.t36'));
+      expect(enable, contains('install-existing'));
+      expect(enable, contains('exit 1'));
+    });
+
+    test('кнопка 2: только включение перевода и перезагрузка', () {
+      final plan = planQ07Russify(q07Zip());
+      expect(plan.steps(_ids(plan)).map((s) => s['type']), [
+        'run_script',
+        'reboot',
+      ]);
+    });
+
+    test(
+      'неверная контрольная сумма или не 36 оверлеев: пакет не собирается',
+      () {
+        expect(
+          () => planQ07Prepare(q07Zip(badHash: true)),
+          throwsA(isA<RecipeException>()),
+        );
+        expect(
+          () => planQ07Russify(q07Zip(count: 35)),
+          throwsA(isA<RecipeException>()),
+        );
+      },
+    );
+
+    test('скрипты для ГУ синтаксически верны (sh -n)', () async {
+      final plan = planQ07Prepare(q07Zip());
+      final dir = await Directory.systemTemp.createTemp('q07sh');
+      addTearDown(() => dir.delete(recursive: true));
+      for (final f in plan.files.where((f) => f.kind == 'sh')) {
+        final file = File('${dir.path}/${f.key}')..writeAsBytesSync(f.bytes);
+        final r = await Process.run('sh', ['-n', file.path]);
+        expect(r.exitCode, 0, reason: '${f.key}: ${r.stderr}');
+      }
+    }, skip: !_hasSh());
+
+    test('одно приложение (звук мотора, СГУ): установка с разрешениями', () {
+      final plan = planSingleApk([
+        0x50,
+        0x4B,
+        3,
+        4,
+        5,
+      ], title: 'Установка звука мотора');
+      final steps = plan.steps(_ids(plan));
+      expect(steps.map((s) => s['type']), ['shell', 'install_apk']);
+      expect(steps.last['grant'], true);
+      expect(
+        () => planSingleApk([1, 2, 3, 4], title: 'x'),
+        throwsA(isA<RecipeException>()),
+      );
+    });
+  });
+}
+
+bool _hasSh() {
+  try {
+    return Process.runSync('sh', ['-c', 'true']).exitCode == 0;
+  } catch (_) {
+    return false;
+  }
 }

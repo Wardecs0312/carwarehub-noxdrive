@@ -8,7 +8,8 @@
 //   dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip \
 //       --prep tool/local/prep.sh --models all [--firmware '%'] [--dry-run]
 //
-//   --recipe  russify | voice | sysapps | cluster | clusterlang
+//   --recipe  russify | voice | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu
+//             (q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
 //   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk,
 //             для clusterlang сам c281-polymeric-language-helper.jar)
 //   --prep    файл с командой доступа ADB (строка с disable-verify), только у администратора, папка tool/local/ не в git
@@ -118,11 +119,21 @@ Future<void> main(List<String> argv) async {
   if (recipe == null || source == null) {
     _fail('Нужны параметры --recipe и --source. См. описание в начале файла.');
   }
-  const known = ['russify', 'voice', 'sysapps', 'cluster', 'clusterlang'];
+  const known = [
+    'russify',
+    'voice',
+    'sysapps',
+    'cluster',
+    'clusterlang',
+    'q07prep',
+    'q07ru',
+    'q07engine',
+    'q07sgu',
+  ];
   if (!known.contains(recipe)) {
     _fail('Неизвестный рецепт $recipe. Доступны: ${known.join(', ')}');
   }
-  if (recipe != 'cluster' && a['prep'] == null) {
+  if (recipe != 'cluster' && !recipe.startsWith('q07') && a['prep'] == null) {
     _fail('Для $recipe нужен --prep (файл с командой доступа ADB)');
   }
 
@@ -156,6 +167,10 @@ Future<void> main(List<String> argv) async {
     plan = switch (recipe) {
       'cluster' => planCluster(data, prep: prep),
       'clusterlang' => planClusterLanguage(data, prep: prep),
+      'q07prep' => planQ07Prepare(ZipDecoder().decodeBytes(data)),
+      'q07ru' => planQ07Russify(ZipDecoder().decodeBytes(data)),
+      'q07engine' => planSingleApk(data, title: 'Установка звука мотора'),
+      'q07sgu' => planSingleApk(data, title: 'Установка СГУ'),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),
       _ => planVoice(ZipDecoder().decodeBytes(data), prep: prep),
@@ -187,8 +202,11 @@ Future<void> main(List<String> argv) async {
           )).first['id']
           as int;
   final modelFilter = a['models'] ?? 'all';
+  // all = только активные модели; явно названные берутся и скрытые (например, Q07 до запуска).
   final models = await api.select(
-    'car_models?select=id,code&is_active=eq.true',
+    modelFilter == 'all'
+        ? 'car_models?select=id,code&is_active=eq.true'
+        : 'car_models?select=id,code',
   );
   final selected = modelFilter == 'all'
       ? models

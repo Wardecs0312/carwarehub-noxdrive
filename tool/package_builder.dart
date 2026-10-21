@@ -1,5 +1,8 @@
 // Чистая логика сборки пакетов услуг из архива: без сети и без диска, поэтому покрыта тестами.
+import 'dart:convert';
+
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart' as crypto;
 
 /// Файл, который нужно зашифровать и загрузить. [key] связывает файл с шагами сценария.
 class PlanFile {
@@ -264,6 +267,331 @@ RecipePlan planClusterLanguage(List<int> jar, {required String prep}) {
   );
 }
 
+/// Строка таблицы оверлеев русификации Q07 (overlays.csv из архива «q07 ru»).
+typedef Q07Overlay = ({
+  String apk,
+  String overlayPackage,
+  String targetPackage,
+  String label,
+  String sha256,
+});
+
+/// Разбор CSV в кавычках: "Order","Apk","OverlayPackage","TargetPackage","Label","SHA256".
+List<List<String>> _quotedCsv(List<int> bytes) {
+  var text = utf8.decode(bytes, allowMalformed: true);
+  if (text.startsWith('﻿')) text = text.substring(1);
+  final rows = <List<String>>[];
+  for (final raw in const LineSplitter().convert(text)) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    rows.add([
+      for (final m in RegExp(r'"([^"]*)"').allMatches(line)) m.group(1)!,
+    ]);
+  }
+  return rows;
+}
+
+final _pkgName = RegExp(r'^[A-Za-z0-9_.]+$');
+
+String _safePkg(String p) {
+  if (!_pkgName.hasMatch(p)) {
+    throw RecipeException('Недопустимое имя пакета: $p');
+  }
+  return p;
+}
+
+/// Таблицы пакета Q07: 36 оверлеев (overlays.csv) и устаревшие оверлеи (legacy_overlays.csv).
+({List<Q07Overlay> overlays, List<({String overlay, String target})> legacy})
+q07Tables(Archive zip) {
+  final table = _quotedCsv(requireFile(zip, 'overlays.csv'));
+  if (table.isEmpty || table.first.length < 6) {
+    throw RecipeException('overlays.csv: нет заголовка');
+  }
+  final overlays = <Q07Overlay>[
+    for (final r in table.skip(1))
+      if (r.length >= 6)
+        (
+          apk: r[1],
+          overlayPackage: _safePkg(r[2]),
+          targetPackage: _safePkg(r[3]),
+          label: r[4],
+          sha256: r[5].toLowerCase(),
+        ),
+  ];
+  if (overlays.length != 36) {
+    throw RecipeException(
+      'overlays.csv: ожидалось 36 оверлеев, найдено ${overlays.length}',
+    );
+  }
+  final legacy = [
+    for (final r in _quotedCsv(requireFile(zip, 'legacy_overlays.csv')).skip(1))
+      if (r.length >= 2) (overlay: _safePkg(r[0]), target: _safePkg(r[1])),
+  ];
+  return (overlays: overlays, legacy: legacy);
+}
+
+/// Общая часть скриптов Q07: пользователи AAOS (0 и текущий) и состояние оверлея.
+/// Как в батнике: состояние берётся из `cmd overlay list --user U <целевое приложение>`.
+const _q07ShellHead = r'''
+u=$(am get-current-user 2>/dev/null | tr -dc 0-9)
+[ -z "$u" ] && u=$(cmd activity get-current-user 2>/dev/null | tr -dc 0-9)
+if [ -z "$u" ]; then echo "Error: current user not read"; exit 1; fi
+users=0
+[ "$u" != 0 ] && users="0 $u"
+st() {
+  out=$(cmd overlay list --user "$3" "$2" 2>/dev/null | sed 's/^ *//')
+  if printf '%s\n' "$out" | grep -qxF "[x] $1"; then echo enabled
+  elif printf '%s\n' "$out" | grep -qxF "[ ] $1"; then echo disabled
+  elif printf '%s\n' "$out" | grep -qxF -- "--- $1"; then echo error
+  else echo missing; fi
+}
+''';
+
+/// Функция включения одного оверлея (refresh_one_user батника).
+const _q07EnableFunction = r'''
+ok=0; bad=0
+en() {
+  o=$1; t=$2; applicable=0; fail=0
+  for usr in $users; do
+    s=$(st "$o" "$t" "$usr")
+    if [ "$s" = missing ]; then
+      if pm path --user "$usr" "$t" 2>/dev/null | grep -q '^package:'; then
+        cmd package install-existing --user "$usr" "$o" >/dev/null 2>&1
+        s=$(st "$o" "$t" "$usr")
+        if [ "$s" = missing ]; then applicable=$((applicable+1)); fail=1; echo "FAIL $o user $usr: not registered"; continue; fi
+      else
+        continue
+      fi
+    fi
+    applicable=$((applicable+1))
+    cmd overlay disable --user "$usr" "$o" >/dev/null 2>&1
+    if ! cmd overlay enable --user "$usr" "$o" >/dev/null 2>&1; then fail=1; echo "FAIL $o user $usr: enable"; continue; fi
+    [ "$(st "$o" "$t" "$usr")" = enabled ] || { fail=1; echo "FAIL $o user $usr: state"; }
+  done
+  if [ "$applicable" -eq 0 ]; then fail=1; echo "FAIL $o: no user"; fi
+  if [ "$fail" -eq 0 ]; then ok=$((ok+1)); else bad=$((bad+1)); fi
+}
+''';
+
+const _q07EnableTail = r'''
+for usr in $users; do
+  am force-stop --user "$usr" com.incall.apps.dlp >/dev/null 2>&1
+  am force-stop --user "$usr" com.incall.apps.sdalauncher >/dev/null 2>&1
+done
+am start --user "$u" -n com.incall.apps.sdalauncher/com.incall.apps.model_main.MainActivity >/dev/null 2>&1
+echo "overlays ok: $ok, failed: $bad, users: $users"
+if [ "$bad" -ne 0 ]; then echo "Error: $bad overlays not enabled"; exit 1; fi
+''';
+
+/// Включение 36 оверлеев (Enable_Final_Overlays.bat): выключить устаревшие, затем для каждого
+/// пользователя выключить и включить оверлей; если оверлей у пользователя не зарегистрирован,
+/// а целевое приложение есть, сначала `install-existing`. Ошибка, если оверлей не включился
+/// ни у одного пользователя или не включился там, где должен. В конце перезапуск DLP и лаунчера.
+String q07EnableScript(
+  List<Q07Overlay> overlays,
+  List<({String overlay, String target})> legacy,
+) {
+  final b = StringBuffer(_q07ShellHead)..writeln(r'for usr in $users; do');
+  for (final l in legacy) {
+    b.writeln(
+      '  cmd overlay disable --user "\$usr" ${l.overlay} >/dev/null 2>&1',
+    );
+  }
+  b
+    ..writeln('done')
+    ..write(_q07EnableFunction);
+  for (final o in overlays) {
+    b.writeln('en ${o.overlayPackage} ${o.targetPackage}');
+  }
+  b.write(_q07EnableTail);
+  return b.toString();
+}
+
+/// Временная подготовка (prepare_vecentek батника). Прежние значения сохраняются в файл;
+/// если файл остался после прерванной установки, исходные значения не перезаписываются.
+const _q07PrepareBody = r'''
+f=/data/local/tmp/nox_q07_state
+if [ ! -f "$f" ]; then
+  {
+    echo "vm=$(getprop vecentek.model)"
+    echo "dd=$(getprop debug.ro.debuggable)"
+    echo "av=$(settings get global verifier_verify_adb_installs)"
+    echo "pv=$(settings get global package_verifier_enable)"
+    echo "nm=$(settings --user "$u" get secure install_non_market_apps)"
+    echo "u=$u"
+  } > "$f" || { echo "Error: state not saved"; exit 1; }
+fi
+setprop vecentek.model 1 && setprop debug.ro.debuggable 1 \
+  && settings put global verifier_verify_adb_installs 0 \
+  && settings put global package_verifier_enable 0 \
+  && settings --user "$u" put secure install_non_market_apps 1 \
+  || { echo "Error: prepare failed"; exit 1; }
+echo "prepared"
+''';
+
+/// Возврат настроек (restore_vecentek батника).
+const q07RestoreScript = r'''
+f=/data/local/tmp/nox_q07_state
+[ -f "$f" ] || { echo "nothing to restore"; exit 0; }
+g() { sed -n "s/^$1=//p" "$f" | head -n 1; }
+vm=$(g vm); dd=$(g dd); av=$(g av); pv=$(g pv); nm=$(g nm); u=$(g u)
+setprop vecentek.model "$vm"
+setprop debug.ro.debuggable "$dd"
+rs() { if [ -z "$2" ] || [ "$2" = null ]; then settings delete global "$1"; else settings put global "$1" "$2"; fi; }
+rs verifier_verify_adb_installs "$av"
+rs package_verifier_enable "$pv"
+if [ -z "$nm" ] || [ "$nm" = null ]; then settings --user "$u" delete secure install_non_market_apps
+else settings --user "$u" put secure install_non_market_apps "$nm"; fi
+rm -f "$f"
+echo "restored"
+''';
+
+/// Остановка уже включённых финальных оверлеев перед обновлением (quiesce батника).
+String q07QuiesceScript(List<Q07Overlay> overlays) {
+  final b = StringBuffer(_q07ShellHead)..writeln('bad=0');
+  for (final o in overlays) {
+    final p = o.overlayPackage, t = o.targetPackage;
+    b.writeln(
+      'for usr in \$users; do if [ "\$(st $p $t \$usr)" = enabled ]; then '
+      'cmd overlay disable --user "\$usr" $p >/dev/null 2>&1; '
+      '[ "\$(st $p $t \$usr)" = enabled ] && bad=\$((bad+1)); fi; done',
+    );
+  }
+  b.writeln(
+    'if [ "\$bad" -ne 0 ]; then echo "Error: \$bad overlays not stopped"; exit 1; fi',
+  );
+  return b.toString();
+}
+
+const _dlpRoot = '/resources/custormer/ivi/Lamb';
+const _dlpFiles = [
+  'lamb_json.json',
+  'cast_video_kara_json.json',
+  'guide_json.json',
+];
+
+/// Q07, кнопка 1 «Подготовка русификации» = пункт 1 FunkyDev Q07 Language Tool
+/// (Install_Final_Overlays.bat): временная подготовка системы, остановка прежних оверлеев,
+/// установка 36 APK (SHA-256 сверяется по overlays.csv), тексты DLP (az, ru), включение
+/// оверлеев для пользователей 0 и текущего, возврат настроек. config.example.json не используется.
+RecipePlan planQ07Prepare(Archive zip) {
+  final t = q07Tables(zip);
+  final files = <PlanFile>[];
+  for (final o in t.overlays) {
+    final bytes = requireFile(zip, 'apks/${o.apk}');
+    if (crypto.sha256.convert(bytes).toString() != o.sha256) {
+      throw RecipeException('Контрольная сумма не совпала: ${o.apk}');
+    }
+    files.add(PlanFile(key: 'apks/${o.apk}', bytes: bytes, kind: 'apk'));
+  }
+  for (final lang in ['az', 'ru']) {
+    for (final name in _dlpFiles) {
+      files.add(
+        PlanFile(
+          key: 'dlp/$lang/$name',
+          bytes: requireFile(zip, 'dlp_dynamic/$lang/$name'),
+          kind: 'bin',
+        ),
+      );
+    }
+  }
+  files.addAll([
+    PlanFile(
+      key: 'prepare.sh',
+      bytes: utf8.encode(_q07ShellHead + _q07PrepareBody),
+      kind: 'sh',
+    ),
+    PlanFile(
+      key: 'quiesce.sh',
+      bytes: utf8.encode(q07QuiesceScript(t.overlays)),
+      kind: 'sh',
+    ),
+    PlanFile(
+      key: 'enable.sh',
+      bytes: utf8.encode(q07EnableScript(t.overlays, t.legacy)),
+      kind: 'sh',
+    ),
+    PlanFile(
+      key: 'restore.sh',
+      bytes: utf8.encode(q07RestoreScript),
+      kind: 'sh',
+    ),
+  ]);
+  return RecipePlan(
+    files: files,
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Подготовка системы',
+        'payload_key': 'prepare.sh',
+      },
+      {
+        'type': 'run_script',
+        'title': 'Остановка прежнего перевода',
+        'payload_key': 'quiesce.sh',
+      },
+      for (final o in t.overlays)
+        {
+          'type': 'install_apk',
+          'title': 'Установка перевода: ${o.label}',
+          'payload_key': 'apks/${o.apk}',
+        },
+      _shell(
+        'Тексты DLP',
+        'test -f $_dlpRoot/skin_nor/lamb_json.json && mkdir -p $_dlpRoot/skin_az $_dlpRoot/skin_ru',
+        hidden: true,
+      ),
+      for (final lang in ['az', 'ru'])
+        for (final name in _dlpFiles)
+          _push(
+            'Тексты DLP',
+            'dlp/$lang/$name',
+            '$_dlpRoot/skin_$lang/$name',
+            hidden: true,
+          ),
+      _shell(
+        'Тексты DLP',
+        'chmod 644 $_dlpRoot/skin_az/*.json $_dlpRoot/skin_ru/*.json',
+        hidden: true,
+      ),
+      {
+        'type': 'run_script',
+        'title': 'Включение перевода',
+        'payload_key': 'enable.sh',
+      },
+      {
+        'type': 'run_script',
+        'title': 'Возврат настроек системы',
+        'payload_key': 'restore.sh',
+      },
+    ], ids),
+  );
+}
+
+/// Q07, кнопка 2 «Русификация» = пункт 2 (Enable_Final_Overlays.bat): выключить устаревшие
+/// оверлеи, включить 36 финальных для пользователей 0 и текущего, перезапустить DLP и лаунчер;
+/// затем одна перезагрузка (по инструкции архива, чтобы обновился кэш текстов).
+RecipePlan planQ07Russify(Archive zip) {
+  final t = q07Tables(zip);
+  return RecipePlan(
+    files: [
+      PlanFile(
+        key: 'enable.sh',
+        bytes: utf8.encode(q07EnableScript(t.overlays, t.legacy)),
+        kind: 'sh',
+      ),
+    ],
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Включение перевода',
+        'payload_key': 'enable.sh',
+      },
+      {'type': 'reboot', 'title': 'Перезагрузка автомобиля'},
+    ], ids),
+  );
+}
+
 /// [2] Голосовое управление. Повторяет ветку :voice батника: файлы кладутся в /data/local/tmp,
 /// SpeechHMI устанавливается, затем всё переносится в /resources/appdata/tinnove/, временные файлы удаляются.
 RecipePlan planVoice(Archive zip, {required String prep}) {
@@ -366,6 +694,26 @@ RecipePlan planVoice(Archive zip, {required String prep}) {
         hidden: true,
         ignoreErrors: true,
       ),
+    ], ids),
+  );
+}
+
+/// Один APK с выдачей разрешений (Q07: звук мотора, СГУ). Перед установкой проверка
+/// Vecentek как у остальных услуг (`setprop vecentek.model 1`, сбрасывается перезагрузкой).
+RecipePlan planSingleApk(List<int> apk, {required String title}) {
+  if (apk.length < 4 || apk[0] != 0x50 || apk[1] != 0x4B) {
+    throw RecipeException('Файл не похож на APK');
+  }
+  return RecipePlan(
+    files: [PlanFile(key: 'app.apk', bytes: apk, kind: 'apk')],
+    steps: (ids) => _resolve([
+      _shell('Подготовка системы', 'setprop vecentek.model 1', hidden: true),
+      {
+        'type': 'install_apk',
+        'title': title,
+        'payload_key': 'app.apk',
+        'grant': true,
+      },
     ], ids),
   );
 }
