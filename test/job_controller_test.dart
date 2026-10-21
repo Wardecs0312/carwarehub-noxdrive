@@ -21,7 +21,7 @@ const _service = ServiceItem(
   allowCustomApks: true,
 );
 const _model = CarModel(id: 1, code: 'q05', title: 'Changan Q05');
-const _vin = 'LS5A3ABC1NA000123';
+const _vin = 'LS5A3ABC4NA000123';
 
 Future<(ProviderContainer, FakeExecutor, FakeBackend, List<int>)> _setup({
   bool withReboot = true,

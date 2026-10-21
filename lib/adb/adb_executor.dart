@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../core/json.dart';
+import '../core/vin.dart';
 
 import '../jobs/job_models.dart';
 import 'adb_client.dart';
@@ -12,6 +13,10 @@ import 'adb_sync.dart';
 /// поэтому в тестах он заменяется заглушкой, а позже может быть заменён нативным ADB на Dart.
 abstract class AdbExecutor {
   Future<DeviceInfo> readDeviceInfo(String serial);
+
+  /// VIN, который хранит само головное устройство (настройки и свойства системы, только чтение).
+  /// null, если не нашёлся или ГУ не ответило: тогда мастер вводит VIN вручную.
+  Future<String?> readVin(String serial);
 
   /// Короткая команда `adb shell`.
   Future<String> shell(String serial, String command);
@@ -118,6 +123,9 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 
   @override
   Future<DeviceInfo> readDeviceInfo(String serial) async => _fail();
+
+  @override
+  Future<String?> readVin(String serial) async => null;
 
   @override
   Future<String> shell(String serial, String command) async => _fail();
@@ -359,6 +367,17 @@ class ProcessAdbExecutor implements AdbExecutor {
       serial: serial,
       huSerial: huSerial,
     );
+  }
+
+  @override
+  Future<String?> readVin(String serial) async {
+    try {
+      // Все источники одной командой: каждое чтение печатает свою строку (пустую, если нет).
+      final out = await shell(serial, vinReadCommands.join('; '));
+      return pickVin(out.split(RegExp(r'\r?\n')));
+    } on AdbException {
+      return null;
+    }
   }
 
   @override

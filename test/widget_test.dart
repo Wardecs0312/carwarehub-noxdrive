@@ -1,12 +1,16 @@
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:carwarehub_noxdrive/app/theme.dart';
+import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/main.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _vin = 'LS5A3ABC1NA000123';
+import 'fakes.dart';
+
+const _vin = 'LS5A3ABC4NA000123';
 
 Future<void> _pump(WidgetTester tester, AdbStatus status, {String? vin}) async {
   tester.view.physicalSize = const Size(1400, 1000);
@@ -14,7 +18,11 @@ Future<void> _pump(WidgetTester tester, AdbStatus status, {String? vin}) async {
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [adbStatusProvider.overrideWith((_) => Stream.value(status))],
+      overrides: [
+        adbStatusProvider.overrideWith((_) => Stream.value(status)),
+        // Настоящий adb в тестах не запускается: ГУ «не хранит» VIN, поле заполняет тест.
+        adbExecutorProvider.overrideWithValue(FakeExecutor()),
+      ],
       child: const NoxDriveApp(),
     ),
   );
@@ -100,7 +108,51 @@ void main() {
       const AdbStatus(AdbConnection.connected, serial: 'A'),
       vin: 'LS5A3ABC1NO000123',
     );
-    expect(find.text('В VIN нет букв I, O, Q'), findsOneWidget);
+    // Подсказка видна под полем и в строке причины над услугами.
+    expect(find.text('В VIN нет букв I, O, Q'), findsWidgets);
+    expect(_cards(tester).every((w) => w.onTap == null), isTrue);
+  });
+
+  testWidgets('ГУ подключили: VIN читается с машины, модель выбирается сама', (tester) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // adb работает только в программе для Windows; тест притворяется Windows.
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final exec = FakeExecutor()..vinOnDevice = 'LS6CME0F7TB000002';
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          adbStatusProvider.overrideWith(
+            (_) => Stream.value(
+              const AdbStatus(AdbConnection.connected, serial: 'A'),
+            ),
+          ),
+          adbExecutorProvider.overrideWithValue(exec),
+        ],
+        child: const NoxDriveApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(exec.unlocks, greaterThan(0));
+    expect(exec.vinReads, 1);
+    expect(find.text('LS6CME0F7TB000002'), findsOneWidget);
+    expect(
+      find.text('VIN определён с машины, модель: Changan Q05'),
+      findsOneWidget,
+    );
+    expect(find.text('Русификация и установка приложений'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('VIN с опечаткой: услуги закрыты, мастер видит причину', (tester) async {
+    await _pump(
+      tester,
+      const AdbStatus(AdbConnection.connected, serial: 'A'),
+      vin: 'LS5A3ABC1NA000123',
+    );
+    expect(find.textContaining('не сходится контрольная цифра'), findsWidgets);
     expect(_cards(tester).every((w) => w.onTap == null), isTrue);
   });
 }

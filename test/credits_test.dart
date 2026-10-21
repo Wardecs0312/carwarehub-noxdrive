@@ -84,7 +84,7 @@ void main() {
           '2',
           -4,
           'charge',
-        ).copyWith(vin: 'LS5A3ABC1NA000123', service: 'Русификация'),
+        ).copyWith(vin: 'LS5A3ABC4NA000123', service: 'Русификация'),
         _c('1', 100, 'topup', note: 'оплата наличными'),
       ],
       {'m1': 91},
@@ -101,7 +101,7 @@ void main() {
     expect(find.text('Пришло: +100 кр.'), findsOneWidget);
     expect(find.text('Ушло: −9 кр.'), findsOneWidget);
     expect(find.text('Причина: ошибка начисления'), findsOneWidget);
-    expect(find.text('Русификация · VIN LS5A3ABC1NA000123'), findsOneWidget);
+    expect(find.text('Русификация · VIN LS5A3ABC4NA000123'), findsOneWidget);
     expect(find.text('баланс 91'), findsOneWidget);
     expect(find.text('баланс 100'), findsOneWidget);
 

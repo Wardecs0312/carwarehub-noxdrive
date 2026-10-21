@@ -51,6 +51,16 @@ class FakeExecutor implements AdbExecutor {
     return scriptResult;
   }
 
+  /// VIN, который «хранит» ГУ (null — не нашёлся), и сколько раз его читали.
+  String? vinOnDevice;
+  int vinReads = 0;
+
+  @override
+  Future<String?> readVin(String serial) async {
+    vinReads++;
+    return vinOnDevice;
+  }
+
   @override
   Future<String> shell(String serial, String command) async {
     calls.add('shell:$command');
