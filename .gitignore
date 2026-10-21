@@ -60,3 +60,6 @@ tool/local/
 # Secrets and Supabase CLI cache
 .env*
 supabase/.temp/
+
+# Отчёты о безопасности не публикуются, пока репозиторий открыт
+docs/SECURITY_AUDIT*
