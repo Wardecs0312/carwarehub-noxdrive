@@ -288,8 +288,12 @@ void main() {
     test('кнопка 1: подготовка, остановка, 36 установок, DLP, включение, возврат настроек', () {
       final plan = planQ07Prepare(q07Zip());
       final steps = plan.steps(_ids(plan));
-      expect(steps.first['title'], 'Подготовка системы');
-      expect(steps[1]['title'], 'Остановка прежнего перевода');
+      final visible = [
+        for (final s in steps)
+          if (s['hidden'] != true) s['title'],
+      ];
+      expect(visible.first, 'Подготовка системы');
+      expect(visible[1], startsWith('Остановка прежнего перевода'));
       expect(steps.where((s) => s['type'] == 'install_apk').length, 36);
       expect(
         steps
@@ -304,24 +308,71 @@ void main() {
         pushes,
         contains('/resources/custormer/ivi/Lamb/skin_ru/lamb_json.json'),
       );
-      expect(pushes.length, 6);
-      expect(steps[steps.length - 2]['title'], 'Включение перевода');
-      expect(steps.last['title'], 'Возврат настроек системы');
-      final enable = utf8.decode(
-        plan.files.firstWhere((f) => f.key == 'enable.sh').bytes,
-      );
+      expect(pushes.where((p) => '$p'.startsWith('/resources/')).length, 6);
+      expect(visible[visible.length - 2], startsWith('Включение перевода'));
+      expect(visible.last, 'Возврат настроек системы');
+      final enable = [
+        for (final f in plan.files)
+          if (f.key.startsWith('enable')) utf8.decode(f.bytes),
+      ].join('\n');
       expect(enable, contains('cmd overlay disable --user "\$usr" com.old.ru'));
       expect(enable, contains('en com.o36.azru com.t36'));
       expect(enable, contains('install-existing'));
       expect(enable, contains('exit 1'));
     });
 
+    test(
+      'скрипты Q07 не идут через run_script: adb exec-in теряет код выхода',
+      () {
+        for (final plan in [
+          planQ07Prepare(q07Zip()),
+          planQ07Russify(q07Zip()),
+        ]) {
+          final steps = plan.steps(_ids(plan));
+          expect(steps.where((s) => s['type'] == 'run_script'), isEmpty);
+          // Каждый скрипт кладётся файлом и выполняется через adb shell с передачей кода выхода.
+          for (final f in plan.files.where((f) => f.kind == 'sh')) {
+            final path = '/data/local/tmp/nox_q07_${f.key}';
+            final i = steps.indexWhere((s) => s['remote_path'] == path);
+            expect(i, isNot(-1), reason: f.key);
+            expect(steps[i + 1]['type'], 'shell');
+            expect(steps[i + 1]['cmd'], startsWith('sh $path '));
+            expect(steps[i + 1]['cmd'], endsWith(r'exit $rc'));
+          }
+        }
+      },
+    );
+
+    test(
+      'включение делится на части (у adb shell в программе предел 60 секунд)',
+      () {
+        final plan = planQ07Prepare(q07Zip());
+        final parts = plan.files
+            .where((f) => f.key.startsWith('enable'))
+            .toList();
+        expect(parts.length, 9);
+        for (final p in parts) {
+          expect(
+            RegExp(
+              r'^en ',
+              multiLine: true,
+            ).allMatches(utf8.decode(p.bytes)).length,
+            lessThanOrEqualTo(4),
+          );
+        }
+        // Устаревшие оверлеи выключаются в первой части, лаунчер перезапускается в последней.
+        expect(utf8.decode(parts.first.bytes), contains('com.old.ru'));
+        expect(utf8.decode(parts.last.bytes), contains('sdalauncher'));
+        expect(utf8.decode(parts[1].bytes), isNot(contains('sdalauncher')));
+      },
+    );
+
     test('кнопка 2: только включение перевода и перезагрузка', () {
       final plan = planQ07Russify(q07Zip());
-      expect(plan.steps(_ids(plan)).map((s) => s['type']), [
-        'run_script',
-        'reboot',
-      ]);
+      final types = plan.steps(_ids(plan)).map((s) => s['type']).toList();
+      expect(types.last, 'reboot');
+      expect(types.where((t) => t == 'reboot').length, 1);
+      expect(types.where((t) => t == 'install_apk'), isEmpty);
     });
 
     test(

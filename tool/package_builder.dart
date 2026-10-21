@@ -373,38 +373,62 @@ en() {
 }
 ''';
 
-const _q07EnableTail = r'''
+const _q07RestartLauncher = r'''
 for usr in $users; do
   am force-stop --user "$usr" com.incall.apps.dlp >/dev/null 2>&1
   am force-stop --user "$usr" com.incall.apps.sdalauncher >/dev/null 2>&1
 done
 am start --user "$u" -n com.incall.apps.sdalauncher/com.incall.apps.model_main.MainActivity >/dev/null 2>&1
+''';
+
+const _q07EnableResult = r'''
 echo "overlays ok: $ok, failed: $bad, users: $users"
 if [ "$bad" -ne 0 ]; then echo "Error: $bad overlays not enabled"; exit 1; fi
 ''';
 
+/// Сколько оверлеев включает одна часть скрипта (у `adb shell` в программе предел 60 секунд).
+const _q07EnablePart = 4;
+
+/// Сколько оверлеев останавливает одна часть скрипта.
+const _q07QuiescePart = 8;
+
+List<List<T>> _parts<T>(List<T> items, int size) => [
+  for (var i = 0; i < items.length; i += size)
+    items.sublist(i, i + size > items.length ? items.length : i + size),
+];
+
 /// Включение 36 оверлеев (Enable_Final_Overlays.bat): выключить устаревшие, затем для каждого
 /// пользователя выключить и включить оверлей; если оверлей у пользователя не зарегистрирован,
 /// а целевое приложение есть, сначала `install-existing`. Ошибка, если оверлей не включился
-/// ни у одного пользователя или не включился там, где должен. В конце перезапуск DLP и лаунчера.
-String q07EnableScript(
+/// ни у одного пользователя или не включился там, где должен. Части по [_q07EnablePart]
+/// оверлеев: устаревшие выключаются в первой, DLP и лаунчер перезапускаются в последней.
+List<String> q07EnableScripts(
   List<Q07Overlay> overlays,
   List<({String overlay, String target})> legacy,
 ) {
-  final b = StringBuffer(_q07ShellHead)..writeln(r'for usr in $users; do');
-  for (final l in legacy) {
-    b.writeln(
-      '  cmd overlay disable --user "\$usr" ${l.overlay} >/dev/null 2>&1',
-    );
-  }
-  b
-    ..writeln('done')
-    ..write(_q07EnableFunction);
-  for (final o in overlays) {
-    b.writeln('en ${o.overlayPackage} ${o.targetPackage}');
-  }
-  b.write(_q07EnableTail);
-  return b.toString();
+  final parts = _parts(overlays, _q07EnablePart);
+  return [
+    for (var i = 0; i < parts.length; i++)
+      (() {
+        final b = StringBuffer(_q07ShellHead);
+        if (i == 0) {
+          b.writeln(r'for usr in $users; do');
+          for (final l in legacy) {
+            b.writeln(
+              '  cmd overlay disable --user "\$usr" ${l.overlay} >/dev/null 2>&1',
+            );
+          }
+          b.writeln('done');
+        }
+        b.write(_q07EnableFunction);
+        for (final o in parts[i]) {
+          b.writeln('en ${o.overlayPackage} ${o.targetPackage}');
+        }
+        if (i == parts.length - 1) b.write(_q07RestartLauncher);
+        b.write(_q07EnableResult);
+        return b.toString();
+      })(),
+  ];
 }
 
 /// Временная подготовка (prepare_vecentek батника). Прежние значения сохраняются в файл;
@@ -446,8 +470,13 @@ rm -f "$f"
 echo "restored"
 ''';
 
-/// Остановка уже включённых финальных оверлеев перед обновлением (quiesce батника).
-String q07QuiesceScript(List<Q07Overlay> overlays) {
+/// Остановка уже включённых финальных оверлеев перед обновлением (quiesce батника),
+/// части по [_q07QuiescePart] оверлеев.
+List<String> q07QuiesceScripts(List<Q07Overlay> overlays) => [
+  for (final part in _parts(overlays, _q07QuiescePart)) _q07Quiesce(part),
+];
+
+String _q07Quiesce(List<Q07Overlay> overlays) {
   final b = StringBuffer(_q07ShellHead)..writeln('bad=0');
   for (final o in overlays) {
     final p = o.overlayPackage, t = o.targetPackage;
@@ -461,6 +490,46 @@ String q07QuiesceScript(List<Q07Overlay> overlays) {
     'if [ "\$bad" -ne 0 ]; then echo "Error: \$bad overlays not stopped"; exit 1; fi',
   );
   return b.toString();
+}
+
+const _q07Tmp = '/data/local/tmp/nox_q07_';
+
+/// Скрипт Q07 кладётся на ГУ файлом и выполняется через `adb shell`: так программа получает
+/// вывод и код выхода. run_script идёт через `adb exec-in`, который их не возвращает,
+/// и проваленное включение перевода выглядело бы успехом.
+List<Map<String, dynamic>> _q07Run(String title, String key) {
+  final path = '$_q07Tmp$key';
+  const log = '${_q07Tmp}log';
+  return [
+    _push(title, key, path, hidden: true),
+    _shell(
+      title,
+      'sh $path > $log 2>&1; rc=\$?; '
+      'if [ \$rc -eq 0 ]; then cat $log; else cat $log >&2; fi; '
+      'rm -f $path $log; exit \$rc',
+    ),
+  ];
+}
+
+/// Файлы и шаги для скриптов, разбитых на части: «Название (1 из 9)».
+({List<PlanFile> files, List<Map<String, dynamic>> steps}) _q07Parts(
+  String title,
+  String name,
+  List<String> scripts,
+) {
+  final files = <PlanFile>[];
+  final steps = <Map<String, dynamic>>[];
+  for (var i = 0; i < scripts.length; i++) {
+    final key = '$name${i + 1}.sh';
+    files.add(PlanFile(key: key, bytes: utf8.encode(scripts[i]), kind: 'sh'));
+    steps.addAll(
+      _q07Run(
+        scripts.length == 1 ? title : '$title (${i + 1} из ${scripts.length})',
+        key,
+      ),
+    );
+  }
+  return (files: files, steps: steps);
 }
 
 const _dlpRoot = '/resources/custormer/ivi/Lamb';
@@ -495,22 +564,24 @@ RecipePlan planQ07Prepare(Archive zip) {
       );
     }
   }
+  final quiesce = _q07Parts(
+    'Остановка прежнего перевода',
+    'quiesce',
+    q07QuiesceScripts(t.overlays),
+  );
+  final enable = _q07Parts(
+    'Включение перевода',
+    'enable',
+    q07EnableScripts(t.overlays, t.legacy),
+  );
   files.addAll([
     PlanFile(
       key: 'prepare.sh',
       bytes: utf8.encode(_q07ShellHead + _q07PrepareBody),
       kind: 'sh',
     ),
-    PlanFile(
-      key: 'quiesce.sh',
-      bytes: utf8.encode(q07QuiesceScript(t.overlays)),
-      kind: 'sh',
-    ),
-    PlanFile(
-      key: 'enable.sh',
-      bytes: utf8.encode(q07EnableScript(t.overlays, t.legacy)),
-      kind: 'sh',
-    ),
+    ...quiesce.files,
+    ...enable.files,
     PlanFile(
       key: 'restore.sh',
       bytes: utf8.encode(q07RestoreScript),
@@ -520,16 +591,8 @@ RecipePlan planQ07Prepare(Archive zip) {
   return RecipePlan(
     files: files,
     steps: (ids) => _resolve([
-      {
-        'type': 'run_script',
-        'title': 'Подготовка системы',
-        'payload_key': 'prepare.sh',
-      },
-      {
-        'type': 'run_script',
-        'title': 'Остановка прежнего перевода',
-        'payload_key': 'quiesce.sh',
-      },
+      ..._q07Run('Подготовка системы', 'prepare.sh'),
+      ...quiesce.steps,
       for (final o in t.overlays)
         {
           'type': 'install_apk',
@@ -554,16 +617,8 @@ RecipePlan planQ07Prepare(Archive zip) {
         'chmod 644 $_dlpRoot/skin_az/*.json $_dlpRoot/skin_ru/*.json',
         hidden: true,
       ),
-      {
-        'type': 'run_script',
-        'title': 'Включение перевода',
-        'payload_key': 'enable.sh',
-      },
-      {
-        'type': 'run_script',
-        'title': 'Возврат настроек системы',
-        'payload_key': 'restore.sh',
-      },
+      ...enable.steps,
+      ..._q07Run('Возврат настроек системы', 'restore.sh'),
     ], ids),
   );
 }
@@ -573,20 +628,15 @@ RecipePlan planQ07Prepare(Archive zip) {
 /// затем одна перезагрузка (по инструкции архива, чтобы обновился кэш текстов).
 RecipePlan planQ07Russify(Archive zip) {
   final t = q07Tables(zip);
+  final enable = _q07Parts(
+    'Включение перевода',
+    'enable',
+    q07EnableScripts(t.overlays, t.legacy),
+  );
   return RecipePlan(
-    files: [
-      PlanFile(
-        key: 'enable.sh',
-        bytes: utf8.encode(q07EnableScript(t.overlays, t.legacy)),
-        kind: 'sh',
-      ),
-    ],
+    files: enable.files,
     steps: (ids) => _resolve([
-      {
-        'type': 'run_script',
-        'title': 'Включение перевода',
-        'payload_key': 'enable.sh',
-      },
+      ...enable.steps,
       {'type': 'reboot', 'title': 'Перезагрузка автомобиля'},
     ], ids),
   );

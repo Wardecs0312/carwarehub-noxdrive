@@ -56,3 +56,7 @@ tool/local/
 
 # Готовые установщики
 /installer/Output/
+
+# Secrets and Supabase CLI cache
+.env*
+supabase/.temp/
