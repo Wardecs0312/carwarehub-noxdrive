@@ -96,6 +96,17 @@ String siteLoginFor(String? email) {
   return m != null ? m.group(1)! : (email ?? '');
 }
 
+/// Чем плох пароль для сайта админки (null — подходит). Логин админа (Telegram ID) знают многие,
+/// поэтому защищает только пароль: не короче 12 символов, буквы и цифры.
+String? sitePasswordProblem(String p) {
+  if (p.length < 12) return 'Пароль: не меньше 12 символов';
+  if (!RegExp(r'[A-Za-zА-Яа-яЁё]').hasMatch(p) || !RegExp(r'\d').hasMatch(p)) {
+    return 'В пароле нужны и буквы, и цифры';
+  }
+  if (RegExp(r'^(.)\1+$').hasMatch(p)) return 'Пароль слишком простой';
+  return null;
+}
+
 /// «Пароль для сайта»: админ сам задаёт пароль для входа в веб-админку.
 class _SitePasswordButton extends StatelessWidget {
   const _SitePasswordButton();
@@ -134,8 +145,9 @@ class _SitePasswordDialogState extends State<_SitePasswordDialog> {
 
   Future<void> _save() async {
     final p = _p1.text;
-    if (p.length < 6) {
-      setState(() => _error = 'Пароль: не меньше 6 символов');
+    final problem = sitePasswordProblem(p);
+    if (problem != null) {
+      setState(() => _error = problem);
       return;
     }
     if (p != _p2.text) {

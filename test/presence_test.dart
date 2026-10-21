@@ -67,6 +67,14 @@ void main() {
     expect(isTelegramNick('wardecsfly@gmail.com'), isFalse);
   });
 
+  test('пароль сайта админки: не короче 12 символов, буквы и цифры', () {
+    expect(sitePasswordProblem('abc123'), isNotNull);
+    expect(sitePasswordProblem('abcdefghijklm'), isNotNull);
+    expect(sitePasswordProblem('123456789012'), isNotNull);
+    expect(sitePasswordProblem('nox2026drive'), isNull);
+    expect(sitePasswordProblem('пароль2026дом'), isNull);
+  });
+
   testWidgets('вход на сайт: пустые поля — понятная ошибка', (tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1;
