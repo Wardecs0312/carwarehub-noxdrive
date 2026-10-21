@@ -31,6 +31,9 @@ bool _sameArgs(List<String> a, List<String> b) =>
     a.length == b.length &&
     [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
 
+/// Куда на ГУ кладётся скрипт шага run_script перед выполнением (после выполнения удаляется).
+const scriptPath = '/data/local/tmp/nox_step.sh';
+
 /// Строка журнала для пропущенной установки.
 const newerInstalledNote =
     'На машине уже установлена более новая версия, шаг пропущен';
@@ -497,10 +500,35 @@ class JobController extends Notifier<JobState> {
               onProgress: sent,
             );
           default:
-            // Скрипт тоже принимается целиком и сверяется до выполнения.
+            // Скрипт тоже принимается целиком и сверяется до выполнения. Он кладётся на ГУ
+            // файлом и выполняется через adb shell: `adb exec-in` не возвращает ни вывод,
+            // ни код выхода, и ошибка скрипта выглядела бы успехом.
             final bytes = await _verifiedPayload(decrypted, size, step.sha256);
-            await executor.pipe(serial, ['sh'], Stream.value(bytes));
-            sent(size);
+            await executor.push(
+              serial,
+              Stream.value(bytes),
+              scriptPath,
+              onProgress: sent,
+            );
+            final r = await executor.runScript(serial, scriptPath);
+            if (r.output.isNotEmpty) log.writeln(r.output);
+            if (r.code != 0) {
+              final tail = r.output
+                  .split('\n')
+                  .reversed
+                  .take(5)
+                  .toList()
+                  .reversed;
+              final why = tail.join('\n').trim();
+              if (!step.ignoreErrors) {
+                throw JobException(
+                  why.isEmpty
+                      ? 'Скрипт завершился с ошибкой (код ${r.code})'
+                      : 'Скрипт завершился с ошибкой (код ${r.code}): $why',
+                );
+              }
+              log.writeln('Пропущено: скрипт завершился с кодом ${r.code}');
+            }
         }
         if (done != size) throw JobException('Файл получен не полностью');
       case StepType.shell:

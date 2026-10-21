@@ -87,6 +87,7 @@ Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
   StepType type,
   List<int> plain, {
   String? sha256,
+  bool ignoreErrors = false,
 }) async {
   final key = List<int>.generate(32, (i) => i + 7);
   final enc = await PayloadCipher(key).encrypt(plain);
@@ -103,6 +104,7 @@ Future<(ProviderContainer, FakeExecutor)> _setupFileStep(
         encKey: PayloadCipher(key).keyBase64,
         sha256: sha256,
         remotePath: '/data/local/tmp/f.bin',
+        ignoreErrors: ignoreErrors,
       ),
     ],
   );
@@ -204,8 +206,43 @@ void main() {
           .read(jobControllerProvider.notifier)
           .run(service: _service, vin: _vin, model: _model);
       expect(c.read(jobControllerProvider).phase, JobPhase.success);
-      expect(exec.calls, ['pipe:sh']);
+      // Файлом на ГУ и через adb shell: так виден код выхода и вывод скрипта.
+      expect(exec.calls, ['push $scriptPath', 'script:$scriptPath']);
       expect(exec.received.single, script);
+    },
+  );
+
+  test('скрипт завершился с ошибкой: задание не считается успешным', () async {
+    final script = utf8.encode('exit 3');
+    final (c, exec) = await _setupFileStep(
+      StepType.runScript,
+      script,
+      sha256: crypto.sha256.convert(script).toString(),
+    );
+    exec.scriptResult = (code: 3, output: 'Error: 2 overlays not enabled');
+    await c
+        .read(jobControllerProvider.notifier)
+        .run(service: _service, vin: _vin, model: _model);
+    final s = c.read(jobControllerProvider);
+    expect(s.phase, JobPhase.failed);
+    expect(s.message, contains('overlays not enabled'));
+  });
+
+  test(
+    'скрипт с ignore_errors: ошибка в журнале, задание идёт дальше',
+    () async {
+      final script = utf8.encode('exit 1');
+      final (c, exec) = await _setupFileStep(
+        StepType.runScript,
+        script,
+        sha256: crypto.sha256.convert(script).toString(),
+        ignoreErrors: true,
+      );
+      exec.scriptResult = (code: 1, output: 'setprop failed');
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
     },
   );
 

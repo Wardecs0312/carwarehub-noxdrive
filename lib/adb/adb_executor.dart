@@ -19,6 +19,10 @@ abstract class AdbExecutor {
   /// Команда adb на компьютере (`adb -s <serial> <args>`), например `tcpip 5555` или `usb`.
   Future<String> host(String serial, List<String> args);
 
+  /// Выполняет скрипт, уже записанный на ГУ по пути [remotePath] (`adb shell sh <файл>`),
+  /// и удаляет его. Возвращает код выхода и вывод скрипта.
+  Future<ScriptResult> runScript(String serial, String remotePath);
+
   /// Передаёт поток байт в stdin команды на ГУ (`adb exec-in ...`). Ничего не пишет на диск.
   Future<void> pipe(
     String serial,
@@ -56,6 +60,25 @@ abstract class AdbExecutor {
 
   /// Ждёт, пока ГУ снова появится в ADB. false, если не появилось за [timeout].
   Future<bool> waitForDevice(String serial, Duration timeout);
+}
+
+/// Итог скрипта на ГУ: код выхода и вывод (stdout и stderr вместе).
+typedef ScriptResult = ({int code, String output});
+
+/// Метка, после которой скрипт печатает свой код выхода. Код берётся из вывода, а не из
+/// кода `adb shell`: без протокола shell v2 adb всегда возвращает 0.
+const scriptExitMarker = 'NOX_SCRIPT_EXIT=';
+
+/// Разбор вывода `sh <файл>; echo NOX_SCRIPT_EXIT=$?`. null, если метки нет (скрипт прерван).
+ScriptResult? parseScriptOutput(String raw) {
+  final text = raw.replaceAll('\r\n', '\n');
+  final at = text.lastIndexOf(scriptExitMarker);
+  if (at < 0) return null;
+  final code = int.tryParse(
+    text.substring(at + scriptExitMarker.length).trim().split('\n').first,
+  );
+  if (code == null) return null;
+  return (code: code, output: text.substring(0, at).trim());
 }
 
 /// Удалась ли команда `adb exec-in`. Важно: exec-in не возвращает вывод команды на ГУ,
@@ -101,6 +124,10 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 
   @override
   Future<String> host(String serial, List<String> args) async => _fail();
+
+  @override
+  Future<ScriptResult> runScript(String serial, String remotePath) async =>
+      _fail();
 
   @override
   Future<void> pipe(
@@ -275,6 +302,35 @@ class ProcessAdbExecutor implements AdbExecutor {
       throw AdbException(out.isEmpty ? 'Команда adb не выполнена' : out);
     }
     return out;
+  }
+
+  /// Сколько может идти один скрипт на ГУ.
+  static const scriptTimeout = Duration(minutes: 10);
+
+  @override
+  Future<ScriptResult> runScript(String serial, String remotePath) async {
+    final ProcessResult r;
+    try {
+      r = await _tracked([
+        '-s',
+        serial,
+        'shell',
+        'sh $remotePath 2>&1; echo "$scriptExitMarker\$?"; rm -f $remotePath',
+      ], scriptTimeout);
+    } on TimeoutException {
+      throw AdbStallException(
+        'Скрипт на автомобиле не завершился за ${scriptTimeout.inMinutes} минут',
+      );
+    }
+    final out = '${r.stdout}${r.stderr}';
+    final result = parseScriptOutput(out);
+    if (result == null) {
+      final text = out.trim();
+      throw AdbException(
+        text.isEmpty ? 'Скрипт прерван (код ${r.exitCode})' : text,
+      );
+    }
+    return result;
   }
 
   @override
