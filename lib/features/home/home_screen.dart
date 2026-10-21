@@ -184,17 +184,95 @@ class _SectionTitle extends StatelessWidget {
   );
 }
 
-class _VinField extends ConsumerWidget {
+class _VinField extends ConsumerStatefulWidget {
   const _VinField();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_VinField> createState() => _VinFieldState();
+}
+
+/// Поле VIN. При подключении ГУ программа сама читает VIN с машины (только чтение настроек и
+/// свойств системы), вписывает его и выбирает модель по началу VIN. Введённый мастером VIN
+/// не перезаписывается.
+class _VinFieldState extends ConsumerState<_VinField> {
+  late final TextEditingController _ctrl;
+
+  /// VIN, вписанный программой, и для какого ГУ уже читали.
+  String? _autoVin;
+  String? _readFor;
+  String? _note;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: ref.read(vinProvider));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _detect(ref.read(adbStatusProvider).value),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _detect(AdbStatus? status) async {
+    if (!canUseAdb || status == null || !mounted) return;
+    final serial = status.serial;
+    if (!status.isReady || serial == null) {
+      // ГУ отключили: следующая машина будет прочитана заново.
+      if (status.connection == AdbConnection.disconnected) _readFor = null;
+      return;
+    }
+    if (_readFor == serial) return;
+    _readFor = serial;
+    bool typedByMaster() {
+      final v = ref.read(vinProvider);
+      return v.isNotEmpty && v != _autoVin;
+    }
+
+    if (typedByMaster()) return;
+    final executor = ref.read(adbExecutorProvider);
+    try {
+      // Без разблокировки ГУ Changan бесконечно спрашивает пароль на любую команду adb shell.
+      await executor.unlock(serial);
+    } catch (_) {}
+    final vin = await executor.readVin(serial);
+    if (!mounted || vin == null || typedByMaster()) return;
+
+    _autoVin = vin;
+    _ctrl.text = vin;
+    ref.read(vinProvider.notifier).state = vin;
+    var note = 'VIN определён с машины';
+    final code = modelCodeForVin(vin);
+    if (code != null && ref.read(selectedModelProvider) == null) {
+      try {
+        final models = await ref.read(modelsProvider.future);
+        final model = models.where((m) => m.code == code).firstOrNull;
+        if (model != null && mounted && ref.read(selectedModelProvider) == null) {
+          ref.read(selectedModelProvider.notifier).state = model;
+          note = '$note, модель: ${model.title}';
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _note = note);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(adbStatusProvider, (_, next) => _detect(next.value));
+    // VIN могли сбросить извне (например, после услуги): поле показывает то же, что хранится.
+    ref.listen(vinProvider, (_, v) {
+      if (_ctrl.text != v) _ctrl.text = v;
+    });
     final vin = ref.watch(vinProvider);
     final valid = isValidVin(vin);
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 460),
       child: TextField(
         key: const Key('vin-field'),
+        controller: _ctrl,
         maxLength: 17,
         textCapitalization: TextCapitalization.characters,
         inputFormatters: [
@@ -212,14 +290,13 @@ class _VinField extends ConsumerWidget {
         decoration: InputDecoration(
           // Не настоящий VIN, чтобы подсказку не принимали за введённое значение.
           hintText: '17 символов: латиница и цифры',
+          helperText: vin.isNotEmpty && vin == _autoVin ? _note : null,
           counterText: '${vin.length}/17',
           suffixIcon: Icon(
             valid ? Icons.check_circle : Icons.circle_outlined,
             color: valid ? NoxColors.ok : NoxColors.metalDark,
           ),
-          errorText: vin.length == 17 && !valid
-              ? 'В VIN нет букв I, O, Q'
-              : null,
+          errorText: vinProblem(vin),
         ),
         onChanged: (v) => ref.read(vinProvider.notifier).state = v,
       ),
@@ -230,7 +307,8 @@ class _VinField extends ConsumerWidget {
 /// Почему услуги сейчас недоступны. Подсказка на карточке (Tooltip) на сенсорных экранах не видна,
 /// поэтому причина дублируется строкой над кнопками.
 String? serviceBlockedHint(AdbStatus adb, String vin) =>
-    adb.blockedHint ?? (isValidVin(vin) ? null : 'Введите VIN (17 символов)');
+    adb.blockedHint ??
+    (isValidVin(vin) ? null : vinProblem(vin) ?? 'Введите VIN (17 символов)');
 
 class _BlockedReason extends ConsumerWidget {
   const _BlockedReason();

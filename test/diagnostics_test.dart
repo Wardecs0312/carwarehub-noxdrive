@@ -148,7 +148,7 @@ void main() {
       final steps = <String>[];
       final r = await _runner(e).run(
         'A',
-        vin: 'LS5A3ABC1NA000123',
+        vin: 'LS5A3ABC4NA000123',
         appVersion: '2.0.30+30',
         onStep: (_, t) => steps.add(t),
       );
@@ -171,7 +171,7 @@ void main() {
 
       expect(r.model, 'C281MCA2');
       final json = r.toJson();
-      expect(json['vin'], 'LS5A3ABC1NA000123');
+      expect(json['vin'], 'LS5A3ABC4NA000123');
       expect((json['props'] as Map)['ro.product.model'], 'C281MCA2');
       final probeResult = r.results.firstWhere((x) => x.id == 'cluster_probe');
       expect(probeResult.output, contains('probe=ok'));
@@ -231,11 +231,11 @@ void main() {
       await c.read(adbStatusProvider.future);
       await c
           .read(diagnosticsControllerProvider.notifier)
-          .run(vin: 'ls5a3abc1na000123');
+          .run(vin: 'ls5a3abc4na000123');
       final s = c.read(diagnosticsControllerProvider);
       expect(s.phase, DiagPhase.sent);
       expect(s.progress, 1);
-      expect(b.sent.single.vin, 'LS5A3ABC1NA000123');
+      expect(b.sent.single.vin, 'LS5A3ABC4NA000123');
       expect(b.sent.single.appVersion, '2.0.30+30');
     });
 
@@ -303,6 +303,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // При подключении ГУ программа сама читает VIN (разблокировка и чтение настроек) —
+    // это не диагностика, поэтому дальше считаем только её команды.
+    exec.calls.clear();
 
     final button = find.byKey(const Key('diagnostics-button'));
     await tester.ensureVisible(button);

@@ -39,7 +39,7 @@ void main() {
     await _pumpPhone(tester);
     await tester.enterText(
       find.byKey(const Key('vin-field')),
-      'LS5A3ABC1NA000123',
+      'LS5A3ABC4NA000123',
     );
     await tester.tap(find.text('Changan Q05'));
     await tester.pumpAndSettle();

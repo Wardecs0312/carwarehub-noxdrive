@@ -41,7 +41,7 @@ Future<void> _open(
   await tester.pumpAndSettle();
   await tester.enterText(
     find.byKey(const Key('vin-field')),
-    'LS5A3ABC1NA000123',
+    'LS5A3ABC4NA000123',
   );
   await tester.tap(find.text('Changan Q05'));
   await tester.pumpAndSettle();
@@ -139,7 +139,7 @@ void main() {
     await tester.tap(find.text('Начать установку'));
     await tester.pumpAndSettle();
     expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
-    expect(find.text('LS5A3ABC1NA000123'), findsWidgets);
+    expect(find.text('LS5A3ABC4NA000123'), findsWidgets);
     expect(backend.finished, isEmpty, reason: 'ещё ничего не запущено');
 
     await tester.tap(find.byKey(const Key('confirm-back')));
