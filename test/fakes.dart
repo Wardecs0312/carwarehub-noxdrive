@@ -42,6 +42,15 @@ class FakeExecutor implements AdbExecutor {
     return 'restarting in TCP mode port: 5555';
   }
 
+  /// Что вернёт скрипт на ГУ (код выхода и вывод).
+  ScriptResult scriptResult = (code: 0, output: 'ok');
+
+  @override
+  Future<ScriptResult> runScript(String serial, String remotePath) async {
+    calls.add('script:$remotePath');
+    return scriptResult;
+  }
+
   @override
   Future<String> shell(String serial, String command) async {
     calls.add('shell:$command');
