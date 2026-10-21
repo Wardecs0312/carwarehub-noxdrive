@@ -16,6 +16,9 @@ abstract class AdbExecutor {
   /// Короткая команда `adb shell`.
   Future<String> shell(String serial, String command);
 
+  /// Команда adb на компьютере (`adb -s <serial> <args>`), например `tcpip 5555` или `usb`.
+  Future<String> host(String serial, List<String> args);
+
   /// Передаёт поток байт в stdin команды на ГУ (`adb exec-in ...`). Ничего не пишет на диск.
   Future<void> pipe(
     String serial,
@@ -95,6 +98,9 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 
   @override
   Future<String> shell(String serial, String command) async => _fail();
+
+  @override
+  Future<String> host(String serial, List<String> args) async => _fail();
 
   @override
   Future<void> pipe(
@@ -258,6 +264,17 @@ class ProcessAdbExecutor implements AdbExecutor {
     } on TimeoutException {
       throw AdbException('Устройство не ответило за 60 секунд');
     }
+  }
+
+  @override
+  Future<String> host(String serial, List<String> args) async {
+    final r = await _run(serial, args);
+    final out = '${r.stdout}${r.stderr}'.trim();
+    if (r.exitCode != 0 ||
+        RegExp(r'^\s*error:', multiLine: true).hasMatch(out)) {
+      throw AdbException(out.isEmpty ? 'Команда adb не выполнена' : out);
+    }
+    return out;
   }
 
   @override

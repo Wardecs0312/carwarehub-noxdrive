@@ -37,6 +37,12 @@ class FakeExecutor implements AdbExecutor {
   }
 
   @override
+  Future<String> host(String serial, List<String> args) async {
+    calls.add('host:${args.join(' ')}');
+    return 'restarting in TCP mode port: 5555';
+  }
+
+  @override
   Future<String> shell(String serial, String command) async {
     calls.add('shell:$command');
     if (failShell.contains(command)) throw AdbException('нет доступа');

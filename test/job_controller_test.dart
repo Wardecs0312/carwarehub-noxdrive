@@ -476,7 +476,10 @@ void main() {
 
     test('на машине версия новее (VERSION_DOWNGRADE): шаг пропускается, задание идёт дальше', () async {
       final (c, exec, backend) = await setupSteps(const [
-        JobStep(type: StepType.installApk, title: 'Установка: WT_VehicleCenter'),
+        JobStep(
+          type: StepType.installApk,
+          title: 'Установка: WT_VehicleCenter',
+        ),
         JobStep(type: StepType.shell, title: 'Дальше', cmd: 'echo next'),
       ]);
       exec.failSizes.add(700);
@@ -504,6 +507,61 @@ void main() {
       expect(c.read(jobControllerProvider).phase, JobPhase.failed);
       expect(exec.calls, ['install']);
       expect(backend.finished, [false]);
+    });
+
+    test(
+      'adb_host: открыть ADB по Wi-Fi (tcpip 5555) выполняется на компьютере',
+      () async {
+        final (c, exec, backend) = await setupSteps(const [
+          JobStep(
+            type: StepType.shell,
+            title: 'IP',
+            cmd: 'ip -f inet addr show wlan0',
+          ),
+          JobStep(
+            type: StepType.adbHost,
+            title: 'ADB по Wi-Fi',
+            args: ['tcpip', '5555'],
+          ),
+        ]);
+        await c
+            .read(jobControllerProvider.notifier)
+            .run(service: _service, vin: _vin, model: _model);
+
+        expect(c.read(jobControllerProvider).phase, JobPhase.success);
+        expect(exec.calls, [
+          'shell:ip -f inet addr show wlan0',
+          'host:tcpip 5555',
+        ]);
+        expect(backend.logs.single, contains('restarting in TCP mode'));
+      },
+    );
+
+    test(
+      'adb_host: команда не из белого списка не запускается и роняет задание',
+      () async {
+        final (c, exec, backend) = await setupSteps(const [
+          JobStep(type: StepType.adbHost, title: 'x', args: ['root']),
+        ]);
+        await c
+            .read(jobControllerProvider.notifier)
+            .run(service: _service, vin: _vin, model: _model);
+
+        expect(c.read(jobControllerProvider).phase, JobPhase.failed);
+        expect(exec.calls, isEmpty);
+        expect(backend.finished, [false]);
+      },
+    );
+
+    test('adb_host разбирается из JSON сценария', () {
+      final s = JobStep.fromJson({
+        'type': 'adb_host',
+        'title': 't',
+        'args': ['usb'],
+      });
+      expect(s.type, StepType.adbHost);
+      expect(s.args, ['usb']);
+      expect(s.needsPayload, isFalse);
     });
 
     test('shell без ignore_errors прерывает задание', () async {
