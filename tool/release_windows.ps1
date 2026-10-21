@@ -55,7 +55,10 @@ flutter test
 if ($LASTEXITCODE -ne 0) { throw 'Тесты не прошли, выпуск остановлен.' }
 
 Step "Сборка nox.drive $version (сборка $build)"
-flutter build windows --release "--dart-define=SUPABASE_URL=$env:SUPABASE_URL" "--dart-define=SUPABASE_ANON_KEY=$env:SUPABASE_ANON_KEY"
+# Код запутывается (--obfuscate): в разобранной программе нет понятных имён классов и функций.
+# Символы для расшифровки ошибок остаются только у администратора (build\symbols\<версия>), в выпуск не попадают.
+$symbols = "build\symbols\$version+$build"
+flutter build windows --release --obfuscate "--split-debug-info=$symbols" "--dart-define=SUPABASE_URL=$env:SUPABASE_URL" "--dart-define=SUPABASE_ANON_KEY=$env:SUPABASE_ANON_KEY"
 if ($LASTEXITCODE -ne 0) { throw 'flutter build windows завершился с ошибкой' }
 
 $release = 'build\windows\x64\runner\Release'
