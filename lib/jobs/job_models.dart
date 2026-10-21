@@ -1,6 +1,14 @@
 import '../core/json.dart';
 
-enum StepType { installApk, runScript, pushFile, shell, uninstall, reboot }
+enum StepType {
+  installApk,
+  runScript,
+  pushFile,
+  shell,
+  uninstall,
+  reboot,
+  adbHost,
+}
 
 /// Один шаг сценария, как его вернул сервер (`start_job`).
 class JobStep {
@@ -17,6 +25,7 @@ class JobStep {
     this.downgrade = false,
     this.remotePath,
     this.ignoreErrors = false,
+    this.args = const [],
   });
 
   final StepType type;
@@ -43,6 +52,9 @@ class JobStep {
   /// Для shell: ошибка команды не прерывает задание (очистка временных файлов и т.п.).
   final bool ignoreErrors;
 
+  /// Для adb_host: аргументы команды adb на компьютере мастера (только из белого списка).
+  final List<String> args;
+
   bool get needsPayload =>
       type == StepType.installApk ||
       type == StepType.runScript ||
@@ -56,6 +68,7 @@ class JobStep {
       'shell' => StepType.shell,
       'uninstall' => StepType.uninstall,
       'reboot' => StepType.reboot,
+      'adb_host' => StepType.adbHost,
       final other => throw FormatException('Неизвестный шаг сценария: $other'),
     };
     return JobStep(
@@ -71,6 +84,7 @@ class JobStep {
       downgrade: boolOr(j['downgrade']),
       remotePath: strOrNull(j['remote_path']),
       ignoreErrors: boolOr(j['ignore_errors']),
+      args: [for (final a in (j['args'] as List?) ?? const []) str(a)],
     );
   }
 }

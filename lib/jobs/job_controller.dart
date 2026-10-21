@@ -20,6 +20,17 @@ import 'job_models.dart';
 bool isNewerAlreadyInstalled(Object e) =>
     e.toString().contains('INSTALL_FAILED_VERSION_DOWNGRADE');
 
+/// Команды adb на компьютере мастера, которые разрешено запускать из сценария:
+/// открыть ADB по Wi-Fi (порт 5555) и вернуть ADB только на USB.
+const allowedAdbHostCommands = [
+  ['tcpip', '5555'],
+  ['usb'],
+];
+
+bool _sameArgs(List<String> a, List<String> b) =>
+    a.length == b.length &&
+    [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
+
 /// Строка журнала для пропущенной установки.
 const newerInstalledNote =
     'На машине уже установлена более новая версия, шаг пропущен';
@@ -511,6 +522,14 @@ class JobController extends Notifier<JobState> {
         }
       case StepType.reboot:
         await executor.reboot(serial);
+      case StepType.adbHost:
+        // С сервера на компьютере мастера выполняются только эти команды.
+        if (!allowedAdbHostCommands.any((c) => _sameArgs(c, step.args))) {
+          throw JobException(
+            'Недопустимая команда adb: ${step.args.join(' ')}',
+          );
+        }
+        log.writeln(await executor.host(serial, step.args));
     }
     report(1);
   }
