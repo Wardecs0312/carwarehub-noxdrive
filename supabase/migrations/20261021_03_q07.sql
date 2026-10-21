@@ -54,3 +54,15 @@ select s.id, f.id, 1,
   join firmwares f on f.model_id = (select id from car_models where code = 'q07')
  where s.code = 'q07apps'
    and not exists (select 1 from scenarios x where x.service_id = s.id and x.firmware_id = f.id);
+
+-- Кнопка 4 «Установить голосовое управление» = MMVoice (com.mmservice.voice 1.18.1, офлайн Vosk).
+-- Приложение активируется на сервере автора (передаёт android_id, VIN и госномер) — СКРЫТО
+-- (model_services.is_active = false) до решения Алишера о лицензии и цене.
+insert into services (code, title, description, price_credits, price_group, sort_order, allow_custom_apks)
+values ('q07voice', 'Установить голосовое управление', 'Q07: голосовой помощник MMVoice (офлайн)', 0, null, 40, false)
+on conflict (code) do nothing;
+
+insert into model_services (model_id, service_id, is_active)
+select m.id, s.id, false from car_models m cross join services s
+ where m.code = 'q07' and s.code = 'q07voice'
+on conflict (model_id, service_id) do nothing;

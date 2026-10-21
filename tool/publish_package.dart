@@ -8,7 +8,7 @@
 //   dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip \
 //       --prep tool/local/prep.sh --models all [--firmware '%'] [--dry-run]
 //
-//   --recipe  russify | voice | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu
+//   --recipe  russify | voice | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu | q07voice
 //             (q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
 //   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk,
 //             для clusterlang сам c281-polymeric-language-helper.jar)
@@ -129,6 +129,7 @@ Future<void> main(List<String> argv) async {
     'q07ru',
     'q07engine',
     'q07sgu',
+    'q07voice',
   ];
   if (!known.contains(recipe)) {
     _fail('Неизвестный рецепт $recipe. Доступны: ${known.join(', ')}');
@@ -171,6 +172,10 @@ Future<void> main(List<String> argv) async {
       'q07ru' => planQ07Russify(ZipDecoder().decodeBytes(data)),
       'q07engine' => planSingleApk(data, title: 'Установка звука мотора'),
       'q07sgu' => planSingleApk(data, title: 'Установка СГУ'),
+      'q07voice' => planSingleApk(
+        data,
+        title: 'Установка голосового управления',
+      ),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),
       _ => planVoice(ZipDecoder().decodeBytes(data), prep: prep),
