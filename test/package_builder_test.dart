@@ -178,8 +178,19 @@ void main() {
         '/data/local/tmp/WT_ThemeResourcesDay.apk',
         '/data/local/tmp/WT_ThemeResourcesNight.apk',
       ]);
-      // очистка не прерывает задание
-      expect(steps.where((s) => s['ignore_errors'] == true).length, 2);
+      // очистка и перенос тем (папок тем нет на части Q05) не прерывают задание, как в батнике
+      expect(
+        [
+          for (final s in steps)
+            if (s['ignore_errors'] == true) s['cmd'],
+        ],
+        [
+          'mv /data/local/tmp/WT_ThemeResourcesDay.apk /resources/appdata/tinnove/WT_ThemeResourcesDay/',
+          'mv /data/local/tmp/WT_ThemeResourcesNight.apk /resources/appdata/tinnove/WT_ThemeResourcesNight/',
+          'rm -rf /data/local/tmp/IflytekSpeech',
+          'rm /data/local/tmp/*.apk',
+        ],
+      );
     });
 
     test('мастеру показаны укрупнённые пункты, а не каждый файл', () {

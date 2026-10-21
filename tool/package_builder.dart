@@ -723,15 +723,19 @@ RecipePlan planVoice(Archive zip, {required String prep}) {
         'mv $tmp/WT_SpeechMiddleware.apk $dest/',
         hidden: true,
       ),
+      // На части прошивок Q05 (SWC.5328) папок тем нет и mv падает «Is a directory».
+      // Батник этого не замечает и идёт дальше, поэтому и здесь ошибка не останавливает услугу.
       _shell(
         'Перемещение файлов',
         'mv $tmp/WT_ThemeResourcesDay.apk $dest/WT_ThemeResourcesDay/',
         hidden: true,
+        ignoreErrors: true,
       ),
       _shell(
         'Перемещение файлов',
         'mv $tmp/WT_ThemeResourcesNight.apk $dest/WT_ThemeResourcesNight/',
         hidden: true,
+        ignoreErrors: true,
       ),
       _shell(
         'Очистка временных файлов',
