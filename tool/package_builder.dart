@@ -655,7 +655,7 @@ RecipePlan planVoice(
   bool themes = true,
 }) {
   if (packed) return _planVoicePacked(zip, prep: prep, themes: themes);
-  return _planVoiceFiles(zip, prep: prep);
+  return _planVoiceFiles(zip, prep: prep, themes: themes);
 }
 
 /// Имя архива ресурсов голоса на ГУ.
@@ -759,7 +759,11 @@ RecipePlan _planVoicePacked(
   );
 }
 
-RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
+RecipePlan _planVoiceFiles(
+  Archive zip, {
+  required String prep,
+  bool themes = true,
+}) {
   const tmp = '/data/local/tmp';
   const dest = '/resources/appdata/tinnove';
   final base = {
@@ -770,16 +774,18 @@ RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
   if (iflytek.isEmpty) {
     throw RecipeException('В архиве нет папки IflytekSpeech');
   }
-  final themes = {
-    'WT_ThemeResourcesDay.apk': requireFile(
-      zip,
-      'WT_ThemeResourcesDay/WT_ThemeResourcesDay.apk',
-    ),
-    'WT_ThemeResourcesNight.apk': requireFile(
-      zip,
-      'WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk',
-    ),
-  };
+  final themeFiles = !themes
+      ? <String, List<int>>{}
+      : {
+          'WT_ThemeResourcesDay.apk': requireFile(
+            zip,
+            'WT_ThemeResourcesDay/WT_ThemeResourcesDay.apk',
+          ),
+          'WT_ThemeResourcesNight.apk': requireFile(
+            zip,
+            'WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk',
+          ),
+        };
   final dirs = <String>{'$tmp/IflytekSpeech'};
   for (final f in iflytek) {
     final seg = f.rel.split('/');
@@ -796,7 +802,7 @@ RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
         PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
       for (final f in iflytek)
         PlanFile(key: 'IflytekSpeech/${f.rel}', bytes: f.bytes, kind: 'bin'),
-      for (final e in themes.entries)
+      for (final e in themeFiles.entries)
         PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
     ],
     steps: (ids) => _resolve([
@@ -824,7 +830,7 @@ RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
           '$tmp/IflytekSpeech/${iflytek[i].rel}',
           hidden: i > 0,
         ),
-      for (final k in themes.keys)
+      for (final k in themeFiles.keys)
         _push('Загрузка ресурсов', k, '$tmp/$k', hidden: true),
       _shell('Установка компонентов', 'pm install -g -r $tmp/SpeechHMI.apk'),
       _shell('Перемещение файлов', 'cp -r $tmp/IflytekSpeech $dest/'),
@@ -840,18 +846,13 @@ RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
       ),
       // На части прошивок Q05 (SWC.5328) папок тем нет и mv падает «Is a directory».
       // Батник этого не замечает и идёт дальше, поэтому и здесь ошибка не останавливает услугу.
-      _shell(
-        'Перемещение файлов',
-        'mv $tmp/WT_ThemeResourcesDay.apk $dest/WT_ThemeResourcesDay/',
-        hidden: true,
-        ignoreErrors: true,
-      ),
-      _shell(
-        'Перемещение файлов',
-        'mv $tmp/WT_ThemeResourcesNight.apk $dest/WT_ThemeResourcesNight/',
-        hidden: true,
-        ignoreErrors: true,
-      ),
+      for (final k in themeFiles.keys)
+        _shell(
+          'Перемещение файлов',
+          'mv $tmp/$k $dest/${k.replaceAll('.apk', '')}/',
+          hidden: true,
+          ignoreErrors: true,
+        ),
       _shell(
         'Очистка временных файлов',
         'rm -rf $tmp/IflytekSpeech',

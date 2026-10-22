@@ -148,6 +148,19 @@ void main() {
       'nox/WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk': [6],
     });
 
+    test('по файлам без тем (Q05): шаги как сейчас, но без тем и их переноса', () {
+      final full = planVoice(zip, prep: _prep);
+      final plan = planVoice(zip, prep: _prep, themes: false);
+      final steps = plan.steps(_ids(plan));
+      final fullSteps = full.steps(_ids(full));
+      String desc(Map<String, dynamic> s) => '${s['type']} ${s['cmd'] ?? s['remote_path'] ?? s['title']}';
+      expect(
+        steps.map(desc),
+        fullSteps.map(desc).where((d) => !d.contains('WT_ThemeResources')),
+      );
+      expect(plan.files.any((f) => f.key.startsWith('WT_ThemeResources')), isFalse);
+    });
+
     test('packed: ресурсы одним tar, распаковка сразу в tinnove, без тем', () {
       final plan = planVoice(zip, prep: _prep, packed: true, themes: false);
       final steps = plan.steps(_ids(plan));
