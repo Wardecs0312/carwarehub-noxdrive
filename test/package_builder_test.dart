@@ -428,6 +428,92 @@ void main() {
       );
     });
   });
+
+  group('кастомный голос MMVoice [2б]', () {
+    final zip = _zip({
+      'MMVOICE_2026/1.INSTALL_MMVOICE.bat': [1],
+      'MMVOICE_2026/MMVoice-SystemAdapter.apk': [0x50, 0x4B, 1],
+      'MMVOICE_2026/MMVoice.apk': [0x50, 0x4B, 2],
+      'MMVOICE_2026/MMVoice-QuietLaunch-v1.apk': [0x50, 0x4B, 3],
+    });
+
+    test(
+      'адаптер, затем приложение, затем выбор помощника и кнопка на руле',
+      () {
+        final plan = planCustomVoice(zip, prep: _prep);
+        expect(plan.files.map((f) => f.key), [
+          'pre.sh',
+          'MMVoice-SystemAdapter.apk',
+          'MMVoice.apk',
+        ]);
+        final steps = plan.steps(_ids(plan));
+        expect(steps.map((s) => s['type']), [
+          'run_script',
+          'install_apk',
+          'install_apk',
+          'shell',
+          'shell',
+        ]);
+        expect(steps[1]['payload_id'], 'id:MMVoice-SystemAdapter.apk');
+        expect(steps[2]['grant'], true);
+        expect(
+          steps[3]['cmd'],
+          contains('voice_interaction_service $mmVoiceInteraction'),
+        );
+        expect(
+          steps[3]['cmd'],
+          contains('secure assistant $mmVoiceInteraction'),
+        );
+        expect(
+          utf8.decode(plan.files.first.bytes),
+          contains('setprop vecentek.model 1'),
+        );
+      },
+    );
+
+    test('без MMVoice.apk пакет не собирается', () {
+      expect(
+        () => planCustomVoice(
+          _zip({
+            'MMVOICE_2026/MMVoice-SystemAdapter.apk': [1],
+          }),
+          prep: _prep,
+        ),
+        throwsA(isA<RecipeException>()),
+      );
+    });
+
+    test('служба кнопки добавляется к включённым, не затирает их и не дублируется', () async {
+      final cmd =
+          planCustomVoice(
+                zip,
+                prep: _prep,
+              ).steps(_ids(planCustomVoice(zip, prep: _prep))).last['cmd']
+              as String;
+      Future<String> run(String current) async {
+        // settings подменён: get печатает текущее значение, put — что записано.
+        final script =
+            'settings() { if [ "\$1" = get ]; then echo "$current"; else echo "PUT \$3=\$4"; fi; }\n$cmd';
+        final r = await Process.run('sh', ['-c', script]);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        return r.stdout as String;
+      }
+
+      expect(
+        await run('null'),
+        contains('PUT enabled_accessibility_services=$mmVoiceKeyAccessibility'),
+      );
+      expect(
+        await run('a/b.C'),
+        contains(
+          'PUT enabled_accessibility_services=a/b.C:$mmVoiceKeyAccessibility',
+        ),
+      );
+      final again = await run('a/b.C:$mmVoiceKeyAccessibility');
+      expect(again, isNot(contains('enabled_accessibility_services')));
+      expect(again, contains('PUT accessibility_enabled=1'));
+    }, skip: !_hasSh());
+  });
 }
 
 bool _hasSh() {

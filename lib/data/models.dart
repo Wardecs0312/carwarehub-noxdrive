@@ -21,6 +21,8 @@ class ServiceItem {
     required this.title,
     required this.priceCredits,
     this.allowCustomApks = false,
+    this.variantOf,
+    this.choiceTitle,
   });
   final int id;
   final String code;
@@ -30,13 +32,53 @@ class ServiceItem {
   /// Для услуги можно добавить свои APK (услуги установки).
   final bool allowCustomApks;
 
+  /// Код кнопки, вариантом которой является услуга (например, кастомный голос у «voice»).
+  /// Такая услуга не показывается отдельной карточкой, её выбирают в окне выбора варианта.
+  final String? variantOf;
+
+  /// Название в окне выбора варианта («Штатный голос»); пусто — [title].
+  final String? choiceTitle;
+
+  String get choiceLabel => choiceTitle ?? title;
+
   factory ServiceItem.fromJson(Map<String, dynamic> j) => ServiceItem(
     id: intOr(j['id']),
     code: str(j['code']),
     title: str(j['title']),
     priceCredits: intOr(j['price_credits']),
     allowCustomApks: boolOr(j['allow_custom_apks']),
+    variantOf: serviceVariantOf[str(j['code'])],
+    choiceTitle: serviceChoiceTitles[str(j['code'])],
   );
+}
+
+/// Услуга-вариант -> код кнопки, внутри которой её выбирают.
+/// Хранится в программе: в боевой базе нет SQL-доступа для новых колонок.
+const serviceVariantOf = {'voicecustom': 'voice'};
+
+/// Названия в окне выбора варианта.
+const serviceChoiceTitles = {
+  'voice': 'Штатный голос',
+  'voicecustom': 'Кастомный голос MMVoice',
+};
+
+/// Карточки услуг: услуги-варианты прячутся внутрь своей кнопки.
+/// [variants] по коду кнопки — остальные варианты, кроме самой кнопки.
+({List<ServiceItem> cards, Map<String, List<ServiceItem>> variants})
+splitVariants(List<ServiceItem> all) {
+  final codes = {for (final s in all) s.code};
+  final cards = <ServiceItem>[];
+  final variants = <String, List<ServiceItem>>{};
+  for (final s in all) {
+    final parent = s.variantOf;
+    // Вариант без своей кнопки (кнопка выключена для модели) показывается обычной карточкой.
+    if (parent != null && codes.contains(parent)) {
+      (variants[parent] ??= []).add(s);
+    } else {
+      cards.add(s);
+    }
+  }
+  return (cards: cards, variants: variants);
 }
 
 /// Строка прайс-листа (таблица price_groups): пакет или отдельная активация.

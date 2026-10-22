@@ -771,3 +771,49 @@ RecipePlan planSingleApk(List<int> apk, {required String title}) {
     ], ids),
   );
 }
+
+/// Компонент голосового помощника MMVoice (скрытый системный адаптер).
+const mmVoiceInteraction =
+    'com.android.mmvoice.assistantbridge/com.mmservice.voice.assistantbridge.MmVoiceInteractionService';
+
+/// Служба MMVoice, которая ловит кнопку голоса на руле.
+const mmVoiceKeyAccessibility =
+    'com.mmservice.voice/com.q07.offlineassistant.Cs55VoiceKeyAccessibilityService';
+
+/// [2б] Кастомный голос MMVoice. Повторяет 1.INSTALL_MMVOICE.bat из архива MMVOICE_2026:
+/// адаптер, основное приложение, выбор помощника по умолчанию, служба кнопки на руле.
+/// Штатные приложения не удаляются и не меняются.
+RecipePlan planCustomVoice(Archive zip, {required String prep}) {
+  final adapter = requireFile(zip, 'MMVoice-SystemAdapter.apk');
+  final main = requireFile(zip, 'MMVoice.apk');
+  final pre = _lines([prep.trim(), 'setprop vecentek.model 1']);
+  // Служба добавляется к уже включённым, а не заменяет их (как в батнике).
+  const access =
+      'cur=\$(settings get secure enabled_accessibility_services); '
+      'case "\$cur" in *$mmVoiceKeyAccessibility*) ;; '
+      'null|"") settings put secure enabled_accessibility_services $mmVoiceKeyAccessibility ;; '
+      '*) settings put secure enabled_accessibility_services "\$cur:$mmVoiceKeyAccessibility" ;; esac; '
+      'settings put secure accessibility_enabled 1';
+  return RecipePlan(
+    files: [
+      PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
+      PlanFile(key: 'MMVoice-SystemAdapter.apk', bytes: adapter, kind: 'apk'),
+      PlanFile(key: 'MMVoice.apk', bytes: main, kind: 'apk'),
+    ],
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Подготовка системы',
+        'payload_key': 'pre.sh',
+      },
+      _installStep('MMVoice-SystemAdapter.apk', 'MMVoice-SystemAdapter.apk'),
+      _installStep('MMVoice.apk', 'MMVoice.apk', grant: true),
+      _shell(
+        'Выбор голосового помощника',
+        'settings put secure voice_interaction_service $mmVoiceInteraction && '
+            'settings put secure assistant $mmVoiceInteraction',
+      ),
+      _shell('Кнопка голоса на руле', access),
+    ], ids),
+  );
+}

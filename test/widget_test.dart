@@ -102,6 +102,41 @@ void main() {
     expect(_cards(tester).every((w) => w.onTap != null), isTrue);
   });
 
+  testWidgets('голос: сначала выбор штатный/кастомный, потом подтверждение', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      const AdbStatus(AdbConnection.connected, serial: 'A'),
+      vin: _vin,
+    );
+    // Кастомный голос не отдельная карточка, а вариант кнопки голосового управления.
+    expect(find.text('Установка кастомного голоса'), findsNothing);
+    await tester.tap(find.text('Установка голосового управления'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('variant-choice')), findsOneWidget);
+    expect(find.text('Штатный голос'), findsOneWidget);
+    expect(find.text('Входит в пакет, без доплаты'), findsOneWidget);
+    expect(find.text('Кастомный голос MMVoice'), findsOneWidget);
+    expect(find.text('2 кр.'), findsOneWidget);
+    // Пока вариант не выбран, дальше не пройти.
+    final next = find.descendant(
+      of: find.byKey(const Key('variant-next')),
+      matching: find.byType(FilledButton),
+    );
+    expect(tester.widget<FilledButton>(next).onPressed, isNull);
+
+    await tester.tap(find.byKey(const Key('variant-voicecustom')));
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('variant-choice')), findsNothing);
+    expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
+    expect(find.text('Установка кастомного голоса'), findsOneWidget);
+  });
+
   testWidgets('VIN с буквой O считается неверным', (tester) async {
     await _pump(
       tester,
@@ -113,7 +148,9 @@ void main() {
     expect(_cards(tester).every((w) => w.onTap == null), isTrue);
   });
 
-  testWidgets('ГУ подключили: VIN читается с машины, модель выбирается сама', (tester) async {
+  testWidgets('ГУ подключили: VIN читается с машины, модель выбирается сама', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -146,7 +183,9 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('VIN с опечаткой: услуги закрыты, мастер видит причину', (tester) async {
+  testWidgets('VIN с опечаткой: услуги закрыты, мастер видит причину', (
+    tester,
+  ) async {
     await _pump(
       tester,
       const AdbStatus(AdbConnection.connected, serial: 'A'),

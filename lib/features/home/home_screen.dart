@@ -18,6 +18,7 @@ import '../../jobs/job_models.dart';
 import '../diagnostics/diagnostics_ui.dart';
 import '../jobs/job_dialog.dart';
 import '../jobs/package_setup_dialog.dart';
+import '../jobs/variant_choice_dialog.dart';
 import '../shell/nox_header.dart';
 import 'price_card.dart';
 
@@ -119,31 +120,36 @@ class HomeScreen extends ConsumerWidget {
                         )
                       else
                         services.when(
-                          data: (list) => Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _BlockedReason(),
-                              GridView(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: 340,
-                                      mainAxisExtent: 120,
-                                      mainAxisSpacing: 14,
-                                      crossAxisSpacing: 14,
-                                    ),
-                                children: [
-                                  for (var i = 0; i < list.length; i++)
-                                    _ServiceCard(
-                                      index: i + 1,
-                                      service: list[i],
-                                      model: selected,
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
+                          data: (all) {
+                            final (:cards, :variants) = splitVariants(all);
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const _BlockedReason(),
+                                GridView(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 340,
+                                        mainAxisExtent: 120,
+                                        mainAxisSpacing: 14,
+                                        crossAxisSpacing: 14,
+                                      ),
+                                  children: [
+                                    for (var i = 0; i < cards.length; i++)
+                                      _ServiceCard(
+                                        index: i + 1,
+                                        service: cards[i],
+                                        variants:
+                                            variants[cards[i].code] ?? const [],
+                                        model: selected,
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
                           loading: () => const LinearProgressIndicator(),
                           error: (e, _) =>
                               Text('Не удалось загрузить услуги: $e'),
@@ -250,7 +256,9 @@ class _VinFieldState extends ConsumerState<_VinField> {
       try {
         final models = await ref.read(modelsProvider.future);
         final model = models.where((m) => m.code == code).firstOrNull;
-        if (model != null && mounted && ref.read(selectedModelProvider) == null) {
+        if (model != null &&
+            mounted &&
+            ref.read(selectedModelProvider) == null) {
           ref.read(selectedModelProvider.notifier).state = model;
           note = '$note, модель: ${model.title}';
         }
@@ -344,10 +352,14 @@ class _ServiceCard extends ConsumerWidget {
   const _ServiceCard({
     required this.index,
     required this.service,
+    required this.variants,
     required this.model,
   });
   final int index;
   final ServiceItem service;
+
+  /// Другие варианты этой кнопки (кастомный голос у голосового управления).
+  final List<ServiceItem> variants;
   final CarModel model;
 
   @override
@@ -370,6 +382,15 @@ class _ServiceCard extends ConsumerWidget {
           onTap: enabled
               ? () async {
                   final v = normalizeVin(vin);
+                  // Есть варианты: сначала мастер выбирает один из них.
+                  final service = variants.isEmpty
+                      ? this.service
+                      : await showVariantChoiceDialog(
+                          context,
+                          service: this.service,
+                          variants: variants,
+                        );
+                  if (service == null || !context.mounted) return;
                   // Любая услуга начинается только после «Подтвердить загрузку».
                   final chosen = await showPackageSetupDialog(
                     context,

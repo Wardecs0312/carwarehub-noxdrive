@@ -8,8 +8,8 @@
 //   dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip \
 //       --prep tool/local/prep.sh --models all [--firmware '%'] [--dry-run]
 //
-//   --recipe  russify | voice | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu | q07voice
-//             (q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
+//   --recipe  russify | voice | voicecustom | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu | q07voice
+//             (voicecustom: архив MMVOICE_2026.zip; q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
 //   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk,
 //             для clusterlang сам c281-polymeric-language-helper.jar)
 //   --prep    файл с командой доступа ADB (строка с disable-verify), только у администратора, папка tool/local/ не в git
@@ -122,6 +122,7 @@ Future<void> main(List<String> argv) async {
   const known = [
     'russify',
     'voice',
+    'voicecustom',
     'sysapps',
     'cluster',
     'clusterlang',
@@ -175,6 +176,10 @@ Future<void> main(List<String> argv) async {
       'q07voice' => planSingleApk(
         data,
         title: 'Установка голосового управления',
+      ),
+      'voicecustom' => planCustomVoice(
+        ZipDecoder().decodeBytes(data),
+        prep: prep,
       ),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),

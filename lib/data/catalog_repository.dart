@@ -136,6 +136,15 @@ const _demoServices = [
     title: 'Установка голосового управления',
     priceCredits: 0,
     allowCustomApks: true,
+    choiceTitle: 'Штатный голос',
+  ),
+  ServiceItem(
+    id: 8,
+    code: 'voicecustom',
+    title: 'Установка кастомного голоса',
+    priceCredits: 2,
+    variantOf: 'voice',
+    choiceTitle: 'Кастомный голос MMVoice',
   ),
   ServiceItem(
     id: 3,
