@@ -14,6 +14,8 @@
 //             для clusterlang сам c281-polymeric-language-helper.jar)
 //   --prep    файл с командой доступа ADB (строка с disable-verify), только у администратора, папка tool/local/ не в git
 //   --models  all или коды моделей через запятую (q05,uni-z,...)
+//   --packed   (voice) ресурсы IflytekSpeech одним .tar с распаковкой на ГУ, а не сотнями файлов
+//   --no-themes (voice) без тем WT_ThemeResources* (на Q05 папок тем нет)
 //   --firmware шаблон LIKE для ro.build.display.id головного устройства ('%' = любая прошивка)
 import 'dart:convert';
 import 'dart:io';
@@ -183,7 +185,12 @@ Future<void> main(List<String> argv) async {
       ),
       'russify' => planRussify(ZipDecoder().decodeBytes(data), prep: prep),
       'sysapps' => planSystemApps(ZipDecoder().decodeBytes(data), prep: prep),
-      _ => planVoice(ZipDecoder().decodeBytes(data), prep: prep),
+      _ => planVoice(
+        ZipDecoder().decodeBytes(data),
+        prep: prep,
+        packed: a['packed'] == 'true',
+        themes: a['no-themes'] != 'true',
+      ),
     };
   } on RecipeException catch (e) {
     _fail('Ошибка разбора: $e', 1);

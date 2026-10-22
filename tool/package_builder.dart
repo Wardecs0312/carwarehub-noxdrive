@@ -644,7 +644,122 @@ RecipePlan planQ07Russify(Archive zip) {
 
 /// [2] Голосовое управление. Повторяет ветку :voice батника: файлы кладутся в /data/local/tmp,
 /// SpeechHMI устанавливается, затем всё переносится в /resources/appdata/tinnove/, временные файлы удаляются.
-RecipePlan planVoice(Archive zip, {required String prep}) {
+///
+/// [packed]: папка IflytekSpeech (сотни файлов) уходит одним .tar и распаковывается сразу
+/// в /resources/appdata/tinnove/ — одна передача вместо сотен и без копирования на ГУ.
+/// [themes] = false: без тем (на Q05 папок тем нет, 676 МБ передавались бы зря).
+RecipePlan planVoice(
+  Archive zip, {
+  required String prep,
+  bool packed = false,
+  bool themes = true,
+}) {
+  if (packed) return _planVoicePacked(zip, prep: prep, themes: themes);
+  return _planVoiceFiles(zip, prep: prep);
+}
+
+/// Имя архива ресурсов голоса на ГУ.
+const voiceResourcesTar = 'IflytekSpeech.tar';
+
+RecipePlan _planVoicePacked(
+  Archive zip, {
+  required String prep,
+  required bool themes,
+}) {
+  const tmp = '/data/local/tmp';
+  const dest = '/resources/appdata/tinnove';
+  final base = {
+    'WT_SpeechMiddleware.apk': requireFile(zip, 'WT_SpeechMiddleware.apk'),
+    'SpeechHMI.apk': requireFile(zip, 'SpeechHMI.apk'),
+  };
+  final iflytek = filesInDir(zip, 'IflytekSpeech');
+  if (iflytek.isEmpty) {
+    throw RecipeException('В архиве нет папки IflytekSpeech');
+  }
+  final tar = Archive();
+  for (final f in iflytek) {
+    tar.addFile(
+      ArchiveFile.noCompress('IflytekSpeech/${f.rel}', f.bytes.length, f.bytes)
+        ..mode = 0x1b6, // rw-rw-rw-, как после cp -r из батника
+    );
+  }
+  final themeFiles = !themes
+      ? <String, List<int>>{}
+      : {
+          'WT_ThemeResourcesDay.apk': requireFile(
+            zip,
+            'WT_ThemeResourcesDay/WT_ThemeResourcesDay.apk',
+          ),
+          'WT_ThemeResourcesNight.apk': requireFile(
+            zip,
+            'WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk',
+          ),
+        };
+  final pre = _lines([prep.trim(), 'setprop vecentek.model 1']);
+
+  return RecipePlan(
+    files: [
+      PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
+      for (final e in base.entries)
+        PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
+      PlanFile(key: voiceResourcesTar, bytes: TarEncoder().encode(tar), kind: 'bin'),
+      for (final e in themeFiles.entries)
+        PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
+    ],
+    steps: (ids) => _resolve([
+      {
+        'type': 'run_script',
+        'title': 'Подготовка системы',
+        'payload_key': 'pre.sh',
+      },
+      for (var i = 0; i < base.length; i++)
+        _push(
+          'Загрузка основы',
+          base.keys.elementAt(i),
+          '$tmp/${base.keys.elementAt(i)}',
+          hidden: i > 0,
+        ),
+      _push('Загрузка ресурсов', voiceResourcesTar, '$tmp/$voiceResourcesTar'),
+      for (final k in themeFiles.keys)
+        _push('Загрузка ресурсов', k, '$tmp/$k', hidden: true),
+      _shell('Установка компонентов', 'pm install -g -r $tmp/SpeechHMI.apk'),
+      _shell(
+        'Перемещение файлов',
+        'tar -xf $tmp/$voiceResourcesTar -C $dest/',
+      ),
+      _shell(
+        'Перемещение файлов',
+        'mv $tmp/SpeechHMI.apk $dest/',
+        hidden: true,
+      ),
+      _shell(
+        'Перемещение файлов',
+        'mv $tmp/WT_SpeechMiddleware.apk $dest/',
+        hidden: true,
+      ),
+      for (final k in themeFiles.keys)
+        _shell(
+          'Перемещение файлов',
+          'mv $tmp/$k $dest/${k.replaceAll('.apk', '')}/',
+          hidden: true,
+          ignoreErrors: true,
+        ),
+      _shell(
+        'Очистка временных файлов',
+        'rm -f $tmp/$voiceResourcesTar',
+        ignoreErrors: true,
+      ),
+      _shell(
+        'Очистка временных файлов',
+        'rm $tmp/*.apk',
+        hidden: true,
+        ignoreErrors: true,
+      ),
+    ], ids),
+  );
+}
+
+RecipePlan _planVoiceFiles(Archive zip, {required String prep}) {
   const tmp = '/data/local/tmp';
   const dest = '/resources/appdata/tinnove';
   final base = {

@@ -148,6 +148,55 @@ void main() {
       'nox/WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk': [6],
     });
 
+    test('packed: ресурсы одним tar, распаковка сразу в tinnove, без тем', () {
+      final plan = planVoice(zip, prep: _prep, packed: true, themes: false);
+      final steps = plan.steps(_ids(plan));
+      final cmds = [
+        for (final s in steps)
+          if (s['type'] == 'shell') s['cmd'],
+      ];
+      expect(cmds, [
+        'pm install -g -r /data/local/tmp/SpeechHMI.apk',
+        'tar -xf /data/local/tmp/IflytekSpeech.tar -C /resources/appdata/tinnove/',
+        'mv /data/local/tmp/SpeechHMI.apk /resources/appdata/tinnove/',
+        'mv /data/local/tmp/WT_SpeechMiddleware.apk /resources/appdata/tinnove/',
+        'rm -f /data/local/tmp/IflytekSpeech.tar',
+        'rm /data/local/tmp/*.apk',
+      ]);
+      final pushes = [
+        for (final s in steps)
+          if (s['type'] == 'push_file') s['remote_path'],
+      ];
+      expect(pushes, [
+        '/data/local/tmp/WT_SpeechMiddleware.apk',
+        '/data/local/tmp/SpeechHMI.apk',
+        '/data/local/tmp/IflytekSpeech.tar',
+      ]);
+      final tarFile = plan.files.firstWhere((f) => f.key == 'IflytekSpeech.tar');
+      final names = TarDecoder()
+          .decodeBytes(tarFile.bytes)
+          .files
+          .where((f) => f.isFile)
+          .map((f) => f.name)
+          .toList();
+      expect(names, ['IflytekSpeech/a.bin', 'IflytekSpeech/res/b.bin']);
+      expect(plan.files.any((f) => f.key.startsWith('WT_ThemeResources')), isFalse);
+    });
+
+    test('packed с темами: темы передаются и переносятся, ошибка переноса не роняет', () {
+      final plan = planVoice(zip, prep: _prep, packed: true);
+      final steps = plan.steps(_ids(plan));
+      final themeMv = [
+        for (final s in steps)
+          if (s['type'] == 'shell' && (s['cmd'] as String).contains('WT_ThemeResources')) s,
+      ];
+      expect(themeMv.map((s) => s['cmd']), [
+        'mv /data/local/tmp/WT_ThemeResourcesDay.apk /resources/appdata/tinnove/WT_ThemeResourcesDay/',
+        'mv /data/local/tmp/WT_ThemeResourcesNight.apk /resources/appdata/tinnove/WT_ThemeResourcesNight/',
+      ]);
+      expect(themeMv.every((s) => s['ignore_errors'] == true), isTrue);
+    });
+
     test('файлы и порядок шагов как в ветке :voice', () {
       final plan = planVoice(zip, prep: _prep);
       final steps = plan.steps(_ids(plan));
