@@ -27,9 +27,29 @@ String latinizeVin(String raw) => [
 
 /// Значения букв и цифр для контрольной цифры VIN (ISO 3779 / ГОСТ, в Китае обязательна).
 const _translit = {
-  'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'F': 6, 'G': 7, 'H': 8,
-  'J': 1, 'K': 2, 'L': 3, 'M': 4, 'N': 5, 'P': 7, 'R': 9,
-  'S': 2, 'T': 3, 'U': 4, 'V': 5, 'W': 6, 'X': 7, 'Y': 8, 'Z': 9,
+  'A': 1,
+  'B': 2,
+  'C': 3,
+  'D': 4,
+  'E': 5,
+  'F': 6,
+  'G': 7,
+  'H': 8,
+  'J': 1,
+  'K': 2,
+  'L': 3,
+  'M': 4,
+  'N': 5,
+  'P': 7,
+  'R': 9,
+  'S': 2,
+  'T': 3,
+  'U': 4,
+  'V': 5,
+  'W': 6,
+  'X': 7,
+  'Y': 8,
+  'Z': 9,
 };
 const _weights = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
 
@@ -80,6 +100,23 @@ const vinReadCommands = [
   'getprop persist.wt.dvin',
 ];
 
+/// Запасной поиск, если VIN нет в [vinReadCommands] (Changan Q07 на платформе SDA хранит его
+/// иначе): все системные свойства и настройки, в названии которых есть «vin». Только чтение;
+/// `; true` в конце, чтобы пустой grep не считался ошибкой.
+const vinSearchCommand =
+    'getprop | grep -i vin; settings list system | grep -i vin; '
+    'settings list global | grep -i vin; settings list secure | grep -i vin; true';
+
+/// Первый настоящий VIN (17 знаков, верная контрольная цифра) в любом тексте,
+/// например в строках `[persist.vehicle.vin]: [LS6BME2P5TA704609]`.
+String? findVinIn(String text) {
+  for (final m in RegExp(r'[A-Z0-9]{17,}').allMatches(text.toUpperCase())) {
+    final v = m.group(0)!;
+    if (v.length == 17 && isValidVin(v)) return v;
+  }
+  return null;
+}
+
 /// Первый ответ, похожий на настоящий VIN (пустые строки и `null` пропускаются).
 String? pickVin(Iterable<String> answers) {
   for (final a in answers) {
@@ -97,6 +134,8 @@ String? pickVin(Iterable<String> answers) {
 const vinModelPrefixes = {
   'LS4ASE': 'uni-z',
   'LS6CME': 'q05',
+  // Q07 (SDA, msmnile): по первому заданию на сервере, 23.10.2026.
+  'LS6BME': 'q07',
 };
 
 /// Код модели по VIN или null, если начало VIN незнакомое.

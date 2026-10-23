@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../core/json.dart';
 import '../core/vin.dart';
@@ -84,6 +85,34 @@ ScriptResult? parseScriptOutput(String raw) {
   );
   if (code == null) return null;
   return (code: code, output: text.substring(0, at).trim());
+}
+
+/// ГУ отказалось от протокола копирования adb: соединение закрыто без ответа.
+/// На Changan Q07 бывает и «Write failed»: ГУ рвёт соединение, пока программа пишет.
+bool syncRefused(AdbStallException e) =>
+    e.message == 'adb закрыл соединение' ||
+    e.message.startsWith('Связь с adb прервалась');
+
+/// Данные в base64 строками по 76 знаков (57 байт) для `base64 -d` на ГУ.
+Stream<List<int>> base64Lines(Stream<List<int>> data) async* {
+  const line = 57;
+  final rest = <int>[];
+  await for (final chunk in data) {
+    rest.addAll(chunk);
+    final whole = rest.length - rest.length % line;
+    if (whole == 0) continue;
+    final out = BytesBuilder(copy: false);
+    for (var i = 0; i < whole; i += line) {
+      out
+        ..add(ascii.encode(base64.encode(rest.sublist(i, i + line))))
+        ..addByte(10);
+    }
+    rest.removeRange(0, whole);
+    yield out.takeBytes();
+  }
+  if (rest.isNotEmpty) {
+    yield [...ascii.encode(base64.encode(rest)), 10];
+  }
 }
 
 /// Удалась ли команда `adb exec-in`. Важно: exec-in не возвращает вывод команды на ГУ,
@@ -231,7 +260,116 @@ class ProcessAdbExecutor implements AdbExecutor {
     Stream<List<int>> data,
     String remotePath, {
     void Function(int sent)? onProgress,
-  }) => _sync.push(serial, data, remotePath, onProgress: onProgress);
+  }) => _write(serial, data, remotePath, onProgress);
+
+  /// ГУ, которые не принимают протокол копирования adb (Changan Q07 сразу закрывает
+  /// соединение). Им файлы передаются через `adb shell`, как в батнике FunkyDev Q07.
+  final _noSync = <String>{};
+
+  /// Запись файла на ГУ: протокол копирования adb, а если ГУ его не принимает,
+  /// `adb shell "base64 -d > файл"` со сверкой размера.
+  Future<void> _write(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath,
+    void Function(int sent)? onProgress,
+  ) async {
+    if (!_noSync.contains(serial)) {
+      try {
+        await _sync.push(serial, data, remotePath, onProgress: onProgress);
+        return;
+      } on AdbStallException catch (e) {
+        if (!syncRefused(e)) rethrow;
+        // Поток данных уже начат: шаг повторится, и файл пойдёт через adb shell.
+        _noSync.add(serial);
+        throw AdbStallException(
+          'ГУ не принимает копирование файлов adb, передаю через adb shell',
+        );
+      }
+    }
+    await _shellWrite(serial, data, remotePath, onProgress);
+  }
+
+  Future<void> _shellWrite(
+    String serial,
+    Stream<List<int>> data,
+    String remotePath,
+    void Function(int sent)? onProgress,
+  ) async {
+    final tmp = '$remotePath.nox';
+    final p = await Process.start(_adb, [
+      '-s',
+      serial,
+      'shell',
+      "base64 -d > '$tmp'",
+    ]);
+    _procs.add(p);
+    final out = StringBuffer();
+    final outSub = p.stdout.transform(utf8.decoder).listen(out.write);
+    final errSub = p.stderr.transform(utf8.decoder).listen(out.write);
+    var last = DateTime.now();
+    var stalled = false;
+    final watch = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (DateTime.now().difference(last) > stallTimeout) {
+        stalled = true;
+        p.kill();
+      }
+    });
+    var sent = 0;
+    int code;
+    try {
+      try {
+        await p.stdin.addStream(
+          base64Lines(
+            data.map((c) {
+              last = DateTime.now();
+              sent += c.length;
+              onProgress?.call(sent);
+              return c;
+            }),
+          ),
+        );
+        await p.stdin.close();
+      } on SocketException {
+        // adb закрылся раньше времени: причину покажет вывод ниже
+      }
+      code = await p.exitCode.timeout(
+        const Duration(minutes: 5),
+        onTimeout: () {
+          p.kill();
+          return -1;
+        },
+      );
+    } finally {
+      watch.cancel();
+      _procs.remove(p);
+      await outSub.cancel();
+      await errSub.cancel();
+    }
+    if (stalled) {
+      await _quiet(serial, "rm -f '$tmp'");
+      throw AdbStallException(
+        'Передача на автомобиль замерла: данные не уходили ${stallTimeout.inSeconds} секунд',
+      );
+    }
+    final text = out.toString().trim();
+    if (code != 0) {
+      await _quiet(serial, "rm -f '$tmp'");
+      throw AdbException(
+        text.isEmpty ? 'Файл не записан на автомобиль (код $code)' : text,
+      );
+    }
+    // Как в батнике: размер файла на ГУ должен совпасть с отправленным.
+    final size = int.tryParse((await shell(serial, "wc -c < '$tmp'")).trim());
+    if (size != sent) {
+      await _quiet(serial, "rm -f '$tmp'");
+      throw AdbException(
+        'Файл записан на автомобиль не полностью: $size из $sent байт'
+        '${text.isEmpty ? '' : ' ($text)'}',
+      );
+    }
+    await shell(serial, "chmod 644 '$tmp' && mv -f '$tmp' '$remotePath'");
+  }
 
   @override
   Future<void> install(
@@ -244,7 +382,7 @@ class ProcessAdbExecutor implements AdbExecutor {
     final remote =
         '/data/local/tmp/nox_${DateTime.now().microsecondsSinceEpoch}.apk';
     try {
-      await _sync.push(serial, data, remote, onProgress: onProgress);
+      await _write(serial, data, remote, onProgress);
       final ProcessResult r;
       try {
         r = await _tracked([
@@ -374,7 +512,9 @@ class ProcessAdbExecutor implements AdbExecutor {
     try {
       // Все источники одной командой: каждое чтение печатает свою строку (пустую, если нет).
       final out = await shell(serial, vinReadCommands.join('; '));
-      return pickVin(out.split(RegExp(r'\r?\n')));
+      final vin = pickVin(out.split(RegExp(r'\r?\n')));
+      if (vin != null) return vin;
+      return findVinIn(await shell(serial, vinSearchCommand));
     } on AdbException {
       return null;
     }

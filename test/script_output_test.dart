@@ -1,9 +1,39 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
+import 'package:carwarehub_noxdrive/adb/adb_sync.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'base64 строками: ГУ соберёт ровно те же байты (запасной путь Q07)',
+    () async {
+      final data = List<int>.generate(70001, (i) => (i * 31) % 256);
+      final chunks = [
+        data.sublist(0, 5),
+        data.sublist(5, 40000),
+        data.sublist(40000),
+      ];
+      final text = ascii.decode([
+        for (final c in await base64Lines(Stream.fromIterable(chunks)).toList())
+          ...c,
+      ]);
+      final lines = text.trimRight().split('\n');
+      expect(lines.every((l) => l.length <= 76), isTrue);
+      expect(base64.decode(lines.join()), data);
+    },
+  );
+
+  test('закрытое без ответа соединение = ГУ не принимает копирование adb', () {
+    expect(syncRefused(AdbStallException('adb закрыл соединение')), isTrue);
+    expect(
+      syncRefused(AdbStallException('Связь с adb прервалась: Write failed')),
+      isTrue,
+    );
+    expect(syncRefused(AdbStallException('Передача замерла')), isFalse);
+  });
+
   test('код выхода и вывод скрипта берутся из метки', () {
     expect(parseScriptOutput('line 1\r\nError: x\r\nNOX_SCRIPT_EXIT=3\r\n'), (
       code: 3,

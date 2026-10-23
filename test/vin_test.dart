@@ -17,14 +17,20 @@ void main() {
     expect(isValidVin('ЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ'), isFalse);
   });
 
-  test('контрольная цифра: настоящий VIN проходит, опечатка в одном знаке — нет', () {
-    expect(isValidVin('LS5A3ABC4NA000123'), isTrue);
-    expect(vinCheckDigit('LS5A3ABC4NA000123'), '4');
-    // Тот же VIN с неверным 9-м знаком (так в истории попадали выдуманные VIN и опечатки).
-    expect(isValidVin('LS5A3ABC1NA000123'), isFalse);
-    expect(vinProblem('LS5A3ABC1NA000123'), contains('не сходится контрольная цифра'));
-    expect(isValidVin('LS5A3ABC4NA000124'), isFalse);
-  });
+  test(
+    'контрольная цифра: настоящий VIN проходит, опечатка в одном знаке — нет',
+    () {
+      expect(isValidVin('LS5A3ABC4NA000123'), isTrue);
+      expect(vinCheckDigit('LS5A3ABC4NA000123'), '4');
+      // Тот же VIN с неверным 9-м знаком (так в истории попадали выдуманные VIN и опечатки).
+      expect(isValidVin('LS5A3ABC1NA000123'), isFalse);
+      expect(
+        vinProblem('LS5A3ABC1NA000123'),
+        contains('не сходится контрольная цифра'),
+      );
+      expect(isValidVin('LS5A3ABC4NA000124'), isFalse);
+    },
+  );
 
   test('контрольная цифра X', () {
     expect(vinCheckDigit('LS5A3ABCXNA000000'), 'X');
@@ -37,24 +43,64 @@ void main() {
     expect(vinProblem('LS5A3ABC4NA000123'), isNull);
   });
 
-  test('VIN с ГУ: первый настоящий ответ, пустые, null и выдуманные пропускаются', () {
-    expect(pickVin(['null', '', '  ', 'LS5A3ABC1NA000123', 'ls5a3abc4na000123 ']),
-        'LS5A3ABC4NA000123');
-    expect(pickVin(['null', '', '28738BPPBPP3PB3PB']), isNull);
-    expect(pickVin(const []), isNull);
-  });
+  test(
+    'VIN с ГУ: первый настоящий ответ, пустые, null и выдуманные пропускаются',
+    () {
+      expect(
+        pickVin(['null', '', '  ', 'LS5A3ABC1NA000123', 'ls5a3abc4na000123 ']),
+        'LS5A3ABC4NA000123',
+      );
+      expect(pickVin(['null', '', '28738BPPBPP3PB3PB']), isNull);
+      expect(pickVin(const []), isNull);
+    },
+  );
 
-  test('модель по началу VIN: LS4ASE — UNI-Z, LS6CME — Q05, незнакомое — нет', () {
-    expect(modelCodeForVin('LS4ASE2E2TB000001'), 'uni-z');
-    expect(modelCodeForVin('LS6CME0F7TB000002'), 'q05');
-    expect(modelCodeForVin('LJ8B3C1D9PA000003'), isNull);
-    // Ненастоящий VIN модель не определяет.
-    expect(modelCodeForVin('LS6CME0F0TB000002'), isNull);
-  });
+  test(
+    'модель по началу VIN: LS4ASE — UNI-Z, LS6CME — Q05, незнакомое — нет',
+    () {
+      expect(modelCodeForVin('LS4ASE2E2TB000001'), 'uni-z');
+      expect(modelCodeForVin('LS6CME0F7TB000002'), 'q05');
+      expect(modelCodeForVin('LS6BME2P5TA704609'), 'q07');
+      expect(modelCodeForVin('LJ8B3C1D9PA000003'), isNull);
+      // Ненастоящий VIN модель не определяет.
+      expect(modelCodeForVin('LS6CME0F0TB000002'), isNull);
+    },
+  );
 
   test('чтение VIN с ГУ: только команды чтения', () {
     for (final c in vinReadCommands) {
-      expect(c.startsWith('settings get ') || c.startsWith('getprop '), isTrue, reason: c);
+      expect(
+        c.startsWith('settings get ') || c.startsWith('getprop '),
+        isTrue,
+        reason: c,
+      );
+    }
+  });
+
+  test('запасной поиск VIN в выводе getprop и settings (Q07)', () {
+    expect(
+      findVinIn(
+        '[persist.sys.boot]: [1]\n[persist.vehicle.vin]: [LS6BME2P5TA704609]\n',
+      ),
+      'LS6BME2P5TA704609',
+    );
+    expect(findVinIn('ca_car_vin=ls6bme2p5ta704609'), 'LS6BME2P5TA704609');
+    // Неверная контрольная цифра и строки длиннее 17 знаков не берутся.
+    expect(findVinIn('[x.vin]: [LS6BME2P0TA704609]'), isNull);
+    expect(findVinIn('serial=LS6BME2P5TA704609AB'), isNull);
+    expect(findVinIn(''), isNull);
+  });
+
+  test('запасной поиск VIN только читает', () {
+    for (final c in vinSearchCommand.split(';')) {
+      final cmd = c.trim();
+      expect(
+        cmd == 'true' ||
+            RegExp(r'^(getprop|settings list \w+) \| grep -i vin$')
+                .hasMatch(cmd),
+        isTrue,
+        reason: cmd,
+      );
     }
   });
 }
