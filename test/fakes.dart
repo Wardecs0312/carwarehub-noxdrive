@@ -1,5 +1,6 @@
 import 'package:carwarehub_noxdrive/adb/adb_executor.dart';
 import 'package:carwarehub_noxdrive/adb/adb_sync.dart';
+import 'package:carwarehub_noxdrive/adb/wifi_adb.dart';
 import 'package:carwarehub_noxdrive/jobs/apk_picker.dart';
 import 'package:carwarehub_noxdrive/jobs/custom_apk_store.dart';
 import 'package:carwarehub_noxdrive/jobs/job_backend.dart';
@@ -36,6 +37,27 @@ class FakeExecutor implements AdbExecutor {
     return DeviceInfo(build: 'CHANGAN.Q05.1.0', model: 'Q05', serial: serial);
   }
 
+  /// Ответ `adb connect` (null — подключение не удалось).
+  String? connectReply = 'connected to 172.20.10.3:5555';
+
+  @override
+  Future<String> connect(String address) async {
+    calls.add('connect:$address');
+    final r = connectReply;
+    if (r == null) throw AdbException('failed to connect to $address');
+    return r;
+  }
+
+  @override
+  Future<void> disconnect(String address) async =>
+      calls.add('disconnect:$address');
+
+  /// Что ГУ ответит на команду адресов сети.
+  String ipReply =
+      '1: lo    inet 127.0.0.1/8 scope host lo\n'
+      '3: eth0    inet 192.168.100.110/24 brd 192.168.100.255 scope global eth0\n'
+      '9: wlan0    inet 172.20.10.3/28 brd 172.20.10.15 scope global wlan0';
+
   @override
   Future<String> host(String serial, List<String> args) async {
     calls.add('host:${args.join(' ')}');
@@ -65,6 +87,7 @@ class FakeExecutor implements AdbExecutor {
   Future<String> shell(String serial, String command) async {
     calls.add('shell:$command');
     if (failShell.contains(command)) throw AdbException('нет доступа');
+    if (command == wifiIpCommand) return ipReply;
     return 'ok';
   }
 

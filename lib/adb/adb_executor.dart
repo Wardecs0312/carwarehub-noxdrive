@@ -9,6 +9,7 @@ import '../core/vin.dart';
 import '../jobs/job_models.dart';
 import 'adb_client.dart';
 import 'adb_sync.dart';
+import 'wifi_adb.dart';
 
 /// Выполнение команд на головном устройстве. Всё, что нужно сценариям, проходит через этот интерфейс,
 /// поэтому в тестах он заменяется заглушкой, а позже может быть заменён нативным ADB на Dart.
@@ -24,6 +25,12 @@ abstract class AdbExecutor {
 
   /// Команда adb на компьютере (`adb -s <serial> <args>`), например `tcpip 5555` или `usb`.
   Future<String> host(String serial, List<String> args);
+
+  /// Подключение к машине по Wi-Fi (`adb connect 172.20.10.3:5555`). Ошибка, если не вышло.
+  Future<String> connect(String address);
+
+  /// Отключение от машины по Wi-Fi (`adb disconnect 172.20.10.3:5555`).
+  Future<void> disconnect(String address);
 
   /// Выполняет скрипт, уже записанный на ГУ по пути [remotePath] (`adb shell sh <файл>`),
   /// и удаляет его. Возвращает код выхода и вывод скрипта.
@@ -161,6 +168,12 @@ class UnsupportedAdbExecutor implements AdbExecutor {
 
   @override
   Future<String> host(String serial, List<String> args) async => _fail();
+
+  @override
+  Future<String> connect(String address) async => _fail();
+
+  @override
+  Future<void> disconnect(String address) async {}
 
   @override
   Future<ScriptResult> runScript(String serial, String remotePath) async =>
@@ -442,6 +455,36 @@ class ProcessAdbExecutor implements AdbExecutor {
     } on TimeoutException {
       throw AdbException('Устройство не ответило за 60 секунд');
     }
+  }
+
+  @override
+  Future<String> connect(String address) async {
+    final ProcessResult r;
+    try {
+      r = await runWithTimeout(_adb, [
+        'connect',
+        address,
+      ], const Duration(seconds: 15));
+    } on TimeoutException {
+      throw AdbException('Машина не ответила по адресу $address');
+    }
+    final out = '${r.stdout}${r.stderr}'.trim();
+    if (!adbConnectSucceeded(out)) {
+      throw AdbException(
+        out.isEmpty ? 'Не удалось подключиться к $address' : out,
+      );
+    }
+    return out;
+  }
+
+  @override
+  Future<void> disconnect(String address) async {
+    try {
+      await runWithTimeout(_adb, [
+        'disconnect',
+        address,
+      ], const Duration(seconds: 10));
+    } catch (_) {}
   }
 
   @override

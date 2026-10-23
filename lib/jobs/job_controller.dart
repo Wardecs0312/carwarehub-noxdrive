@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../adb/adb_executor.dart';
 import '../adb/adb_sync.dart';
 import '../adb/adb_status_checker.dart';
+import '../adb/wifi_adb.dart';
 import '../app/env.dart';
 import '../app/platform.dart';
 import '../data/auth_repository.dart';
@@ -557,9 +558,61 @@ class JobController extends Notifier<JobState> {
             'Недопустимая команда adb: ${step.args.join(' ')}',
           );
         }
+        final openWifi = _sameArgs(step.args, const ['tcpip', '5555']);
+        // Адрес машины в Wi-Fi читается до `adb tcpip`: после него связь по кабелю пропадает.
+        String? ip;
+        if (openWifi && !isNetworkSerial(serial)) {
+          try {
+            ip = wifiAddressFrom(await executor.shell(serial, wifiIpCommand));
+          } on AdbException {
+            ip = null;
+          }
+        }
         log.writeln(await executor.host(serial, step.args));
+        if (openWifi && !isNetworkSerial(serial)) {
+          await _connectWifi(ip, executor, log);
+        }
+        // ADB вернулся на кабель: подключение по Wi-Fi больше не работает.
+        if (_sameArgs(step.args, const ['usb']) && isNetworkSerial(serial)) {
+          await executor.disconnect(serial);
+        }
     }
     report(1);
+  }
+
+  /// После `adb tcpip 5555` программа сама подключается к машине по Wi-Fi.
+  /// Не вышло — не ошибка задания: ADB по Wi-Fi открыт, мастер подключится позже.
+  Future<void> _connectWifi(
+    String? ip,
+    AdbExecutor executor,
+    StringBuffer log,
+  ) async {
+    if (ip == null) {
+      log.writeln(
+        'Машина не подключена к Wi-Fi: подключиться без кабеля не получится',
+      );
+      return;
+    }
+    final address = '$ip:$wifiAdbPort';
+    ref.read(lastWifiAddressProvider.notifier).state = address;
+    unawaited(saveWifiAddress(address));
+    // adbd на машине перезапускается пару секунд: несколько попыток.
+    for (var i = 0; i < 5; i++) {
+      try {
+        log.writeln(await executor.connect(address));
+        log.writeln('Подключено по Wi-Fi: $address. Кабель можно отключить');
+        return;
+      } on AdbException catch (e) {
+        if (i == 4) {
+          log.writeln(
+            'Не удалось подключиться к $address: $e. '
+            'Компьютер должен быть в той же сети Wi-Fi, что и машина',
+          );
+          return;
+        }
+        await Future<void>.delayed(wifiRetryDelay);
+      }
+    }
   }
 
   /// Принимает расшифрованный файл целиком и сверяет размер и SHA-256 с данными сервера.
@@ -617,6 +670,9 @@ class JobController extends Notifier<JobState> {
 
 /// Сколько ждать, пока ГУ снова появится в ADB после обрыва.
 const _deviceWait = Duration(seconds: 60);
+
+/// Пауза между попытками подключиться по Wi-Fi (в тестах 0).
+var wifiRetryDelay = const Duration(seconds: 2);
 
 final jobControllerProvider = NotifierProvider<JobController, JobState>(
   JobController.new,

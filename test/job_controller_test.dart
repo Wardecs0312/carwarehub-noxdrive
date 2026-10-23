@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
+import 'package:carwarehub_noxdrive/adb/wifi_adb.dart';
 import 'package:carwarehub_noxdrive/data/models.dart';
 import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/jobs/job_models.dart';
@@ -566,13 +567,60 @@ void main() {
             .run(service: _service, vin: _vin, model: _model);
 
         expect(c.read(jobControllerProvider).phase, JobPhase.success);
+        // Адрес Wi-Fi читается до tcpip (потом кабель пропадает), затем программа сама
+        // подключается по Wi-Fi: внутренняя сеть машины (eth0) не берётся.
         expect(exec.calls, [
           'shell:ip -f inet addr show wlan0',
+          'shell:$wifiIpCommand',
           'host:tcpip 5555',
+          'connect:172.20.10.3:5555',
         ]);
         expect(backend.logs.single, contains('restarting in TCP mode'));
+        expect(backend.logs.single, contains('Кабель можно отключить'));
+        expect(c.read(lastWifiAddressProvider), '172.20.10.3:5555');
       },
     );
+
+    test(
+      'adb_host: не удалось подключиться по Wi-Fi — задание всё равно успешно, причина в журнале',
+      () async {
+        wifiRetryDelay = Duration.zero;
+        addTearDown(() => wifiRetryDelay = const Duration(seconds: 2));
+        final (c, exec, backend) = await setupSteps(const [
+          JobStep(
+            type: StepType.adbHost,
+            title: 'ADB по Wi-Fi',
+            args: ['tcpip', '5555'],
+          ),
+        ]);
+        exec.connectReply = null;
+        await c
+            .read(jobControllerProvider.notifier)
+            .run(service: _service, vin: _vin, model: _model);
+
+        expect(c.read(jobControllerProvider).phase, JobPhase.success);
+        expect(exec.calls.where((x) => x.startsWith('connect:')).length, 5);
+        expect(backend.logs.single, contains('той же сети Wi-Fi'));
+      },
+    );
+
+    test('машина не в Wi-Fi: подключение не пробуется', () async {
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(
+          type: StepType.adbHost,
+          title: 'ADB по Wi-Fi',
+          args: ['tcpip', '5555'],
+        ),
+      ]);
+      exec.ipReply = '1: lo    inet 127.0.0.1/8 scope host lo';
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
+      expect(exec.calls.any((x) => x.startsWith('connect:')), isFalse);
+      expect(backend.logs.single, contains('не подключена к Wi-Fi'));
+    });
 
     test(
       'adb_host: команда не из белого списка не запускается и роняет задание',
