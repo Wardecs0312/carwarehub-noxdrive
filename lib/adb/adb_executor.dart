@@ -332,6 +332,11 @@ class ProcessAdbExecutor implements AdbExecutor {
         await p.stdin.close();
       } on SocketException {
         // adb закрылся раньше времени: причину покажет вывод ниже
+      } catch (_) {
+        // Ошибка в самих данных (например, расшифровка): adb не должен остаться висеть.
+        p.kill();
+        await _quiet(serial, "rm -f '$tmp'");
+        rethrow;
       }
       code = await p.exitCode.timeout(
         const Duration(minutes: 5),
