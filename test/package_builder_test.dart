@@ -148,18 +148,25 @@ void main() {
       'nox/WT_ThemeResourcesNight/WT_ThemeResourcesNight.apk': [6],
     });
 
-    test('по файлам без тем (Q05): шаги как сейчас, но без тем и их переноса', () {
-      final full = planVoice(zip, prep: _prep);
-      final plan = planVoice(zip, prep: _prep, themes: false);
-      final steps = plan.steps(_ids(plan));
-      final fullSteps = full.steps(_ids(full));
-      String desc(Map<String, dynamic> s) => '${s['type']} ${s['cmd'] ?? s['remote_path'] ?? s['title']}';
-      expect(
-        steps.map(desc),
-        fullSteps.map(desc).where((d) => !d.contains('WT_ThemeResources')),
-      );
-      expect(plan.files.any((f) => f.key.startsWith('WT_ThemeResources')), isFalse);
-    });
+    test(
+      'по файлам без тем (Q05): шаги как сейчас, но без тем и их переноса',
+      () {
+        final full = planVoice(zip, prep: _prep);
+        final plan = planVoice(zip, prep: _prep, themes: false);
+        final steps = plan.steps(_ids(plan));
+        final fullSteps = full.steps(_ids(full));
+        String desc(Map<String, dynamic> s) =>
+            '${s['type']} ${s['cmd'] ?? s['remote_path'] ?? s['title']}';
+        expect(
+          steps.map(desc),
+          fullSteps.map(desc).where((d) => !d.contains('WT_ThemeResources')),
+        );
+        expect(
+          plan.files.any((f) => f.key.startsWith('WT_ThemeResources')),
+          isFalse,
+        );
+      },
+    );
 
     test('packed: ресурсы одним tar, распаковка сразу в tinnove, без тем', () {
       final plan = planVoice(zip, prep: _prep, packed: true, themes: false);
@@ -185,7 +192,9 @@ void main() {
         '/data/local/tmp/SpeechHMI.apk',
         '/data/local/tmp/IflytekSpeech.tar',
       ]);
-      final tarFile = plan.files.firstWhere((f) => f.key == 'IflytekSpeech.tar');
+      final tarFile = plan.files.firstWhere(
+        (f) => f.key == 'IflytekSpeech.tar',
+      );
       final names = TarDecoder()
           .decodeBytes(tarFile.bytes)
           .files
@@ -193,7 +202,10 @@ void main() {
           .map((f) => f.name)
           .toList();
       expect(names, ['IflytekSpeech/a.bin', 'IflytekSpeech/res/b.bin']);
-      expect(plan.files.any((f) => f.key.startsWith('WT_ThemeResources')), isFalse);
+      expect(
+        plan.files.any((f) => f.key.startsWith('WT_ThemeResources')),
+        isFalse,
+      );
     });
 
     test('packed с темами: темы передаются и переносятся, ошибка переноса не роняет', () {
@@ -201,7 +213,9 @@ void main() {
       final steps = plan.steps(_ids(plan));
       final themeMv = [
         for (final s in steps)
-          if (s['type'] == 'shell' && (s['cmd'] as String).contains('WT_ThemeResources')) s,
+          if (s['type'] == 'shell' &&
+              (s['cmd'] as String).contains('WT_ThemeResources'))
+            s,
       ];
       expect(themeMv.map((s) => s['cmd']), [
         'mv /data/local/tmp/WT_ThemeResourcesDay.apk /resources/appdata/tinnove/WT_ThemeResourcesDay/',
@@ -482,8 +496,13 @@ void main() {
         5,
       ], title: 'Установка звука мотора');
       final steps = plan.steps(_ids(plan));
-      expect(steps.map((s) => s['type']), ['shell', 'install_apk']);
-      expect(steps.last['grant'], true);
+      // Полная подготовка (иначе «Vecentek failed to verify APK result»), установка, возврат.
+      expect(steps.map((s) => s['type']), ['shell', 'install_apk', 'shell']);
+      expect(steps[1]['grant'], true);
+      final prep = steps.first['cmd'] as String;
+      expect(prep, contains('settings put global package_verifier_enable 0'));
+      expect(prep, contains('setprop debug.ro.debuggable 1'));
+      expect(steps.last['cmd'], contains('restored'));
       expect(
         () => planSingleApk([1, 2, 3, 4], title: 'x'),
         throwsA(isA<RecipeException>()),

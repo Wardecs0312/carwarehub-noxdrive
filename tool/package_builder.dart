@@ -702,7 +702,11 @@ RecipePlan _planVoicePacked(
       PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
       for (final e in base.entries)
         PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
-      PlanFile(key: voiceResourcesTar, bytes: TarEncoder().encode(tar), kind: 'bin'),
+      PlanFile(
+        key: voiceResourcesTar,
+        bytes: TarEncoder().encode(tar),
+        kind: 'bin',
+      ),
       for (final e in themeFiles.entries)
         PlanFile(key: e.key, bytes: e.value, kind: 'apk'),
     ],
@@ -723,10 +727,7 @@ RecipePlan _planVoicePacked(
       for (final k in themeFiles.keys)
         _push('Загрузка ресурсов', k, '$tmp/$k', hidden: true),
       _shell('Установка компонентов', 'pm install -g -r $tmp/SpeechHMI.apk'),
-      _shell(
-        'Перемещение файлов',
-        'tar -xf $tmp/$voiceResourcesTar -C $dest/',
-      ),
+      _shell('Перемещение файлов', 'tar -xf $tmp/$voiceResourcesTar -C $dest/'),
       _shell(
         'Перемещение файлов',
         'mv $tmp/SpeechHMI.apk $dest/',
@@ -874,19 +875,32 @@ RecipePlan planSingleApk(List<int> apk, {required String title}) {
   if (apk.length < 4 || apk[0] != 0x50 || apk[1] != 0x4B) {
     throw RecipeException('Файл не похож на APK');
   }
+  // Одного `setprop vecentek.model 1` на Q07 мало: установщик отвечает «Vecentek failed
+  // to verify APK result». Та же временная подготовка, что у кнопки 1 (prepare_vecentek батника),
+  // после установки настройки возвращаются. Скрипты короткие, поэтому идут прямо командой.
   return RecipePlan(
     files: [PlanFile(key: 'app.apk', bytes: apk, kind: 'apk')],
     steps: (ids) => _resolve([
-      _shell('Подготовка системы', 'setprop vecentek.model 1', hidden: true),
+      q07PrepareStep,
       {
         'type': 'install_apk',
         'title': title,
         'payload_key': 'app.apk',
         'grant': true,
       },
+      q07RestoreStep,
     ], ids),
   );
 }
+
+/// Временная подготовка Q07 одной командой (adb shell): проверка APK выключена, прежние
+/// значения сохранены в /data/local/tmp/nox_q07_state. Нужна и перед «Установить приложения».
+Map<String, dynamic> get q07PrepareStep =>
+    _shell('Подготовка системы', _q07ShellHead + _q07PrepareBody);
+
+/// Возврат настроек Q07 после установки.
+Map<String, dynamic> get q07RestoreStep =>
+    _shell('Возврат настроек системы', q07RestoreScript);
 
 /// Компонент голосового помощника MMVoice (скрытый системный адаптер).
 const mmVoiceInteraction =
