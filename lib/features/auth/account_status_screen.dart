@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,7 +44,7 @@ class AccountStatusScreen extends ConsumerWidget {
                 const SizedBox(height: 8),
                 Text(
                   pending
-                      ? 'Администратор проверит её и откроет доступ. После одобрения нажмите «Проверить».'
+                      ? 'Администратор проверит её и откроет доступ. После одобрения программа откроется сама.'
                       : 'Обратитесь к администратору.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: NoxColors.metalMid),
@@ -53,6 +55,7 @@ class AccountStatusScreen extends ConsumerWidget {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
+                    if (pending) const _ApprovalWatcher(),
                     if (pending)
                       FilledButton(
                         onPressed: () => ref
@@ -75,4 +78,40 @@ class AccountStatusScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Пока мастер ждёт одобрения, статус перепроверяется каждые [approvalPollInterval]: одобрили —
+/// программа открывается сама, без кнопки «Проверить» и перезапуска.
+class _ApprovalWatcher extends ConsumerStatefulWidget {
+  const _ApprovalWatcher();
+
+  @override
+  ConsumerState<_ApprovalWatcher> createState() => _ApprovalWatcherState();
+}
+
+/// Как часто экран ожидания спрашивает сервер, одобрен ли мастер.
+const approvalPollInterval = Duration(seconds: 10);
+
+class _ApprovalWatcherState extends ConsumerState<_ApprovalWatcher> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(approvalPollInterval, (_) {
+      if (!mounted) return;
+      ref
+        ..invalidate(masterStatusProvider)
+        ..invalidate(isAdminProvider);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

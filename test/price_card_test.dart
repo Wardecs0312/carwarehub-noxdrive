@@ -44,6 +44,14 @@ void main() {
     expect(formatRub(500), '500$nb₽');
   });
 
+  test(
+    'цена только в кредитах (кастомный голос): рубли и доллары не показываются',
+    () {
+      expect(moneyText(0, 0), '');
+      expect(moneyText(4000, 48), '4${nb}000$nb₽ / \$48');
+    },
+  );
+
   testWidgets('UNI-V: 4 + 2 кредита, итог 6 кр.', (tester) async {
     await _pickModel(tester, 'Changan UNI-V');
     expect(find.text('Стоимость для Changan UNI-V'), findsOneWidget);

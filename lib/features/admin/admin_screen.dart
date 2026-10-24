@@ -90,6 +90,12 @@ Future<void> _confirmLogout(BuildContext context) async {
   if (ok == true) await signOut();
 }
 
+/// Сумма кредитов из поля админа: «4», «-4», « 4 » — всё 4. null, если это не целое число больше 0.
+int? creditsAmount(String text) {
+  final n = int.tryParse(text.replaceAll(RegExp(r'[\s+-]'), ''));
+  return n == null || n <= 0 ? null : n;
+}
+
 /// Логин для сайта админки: Telegram ID для входа через Telegram, иначе почта.
 String siteLoginFor(String? email) {
   final m = RegExp(r'^tg-(\d+)@telegram\.nox\.drive$').firstMatch(email ?? '');
@@ -647,55 +653,82 @@ class _MastersTab extends ConsumerWidget {
   ) async {
     final amountCtrl = TextEditingController();
     final reasonCtrl = TextEditingController();
+    String? error;
     final signed = await showDialog<int>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Кредиты: ${m.name}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Сейчас на балансе: ${m.credits} кр.'),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('credits-amount'),
-              controller: amountCtrl,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Сколько кредитов'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          // Минус в поле не мешает: направление задаёт кнопка («Списать» / «Начислить»).
+          // Ошибка ввода показывается в окне, а не закрывает его молча.
+          void submit(int sign) {
+            final n = creditsAmount(amountCtrl.text);
+            final problem = n == null
+                ? 'Введите число кредитов, например 4'
+                : reasonCtrl.text.trim().length < 3
+                ? 'Укажите причину (от 3 символов)'
+                : sign < 0 && n > m.credits
+                ? 'Нельзя списать больше, чем есть на балансе (${m.credits} кр.)'
+                : null;
+            if (problem != null) {
+              setState(() => error = problem);
+              return;
+            }
+            Navigator.pop(ctx, sign * n!);
+          }
+
+          return AlertDialog(
+            title: Text('Кредиты: ${m.name}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Сейчас на балансе: ${m.credits} кр.'),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('credits-amount'),
+                  controller: amountCtrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Сколько кредитов',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const Key('credits-reason'),
+                  controller: reasonCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Причина (видна в журнале)',
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    error!,
+                    key: const Key('credits-error'),
+                    style: const TextStyle(color: NoxColors.bad),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 8),
-            TextField(
-              key: const Key('credits-reason'),
-              controller: reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Причина (видна в журнале)',
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Отмена'),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
-          ),
-          OutlinedButton(
-            key: const Key('credits-minus'),
-            onPressed: () {
-              final n = int.tryParse(amountCtrl.text.trim());
-              Navigator.pop(ctx, n == null || n <= 0 ? null : -n);
-            },
-            child: const Text('Списать'),
-          ),
-          FilledButton(
-            key: const Key('credits-plus'),
-            onPressed: () {
-              final n = int.tryParse(amountCtrl.text.trim());
-              Navigator.pop(ctx, n == null || n <= 0 ? null : n);
-            },
-            child: const Text('Начислить'),
-          ),
-        ],
+              OutlinedButton(
+                key: const Key('credits-minus'),
+                onPressed: () => submit(-1),
+                child: const Text('Списать'),
+              ),
+              FilledButton(
+                key: const Key('credits-plus'),
+                onPressed: () => submit(1),
+                child: const Text('Начислить'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (signed == null || !context.mounted) return;

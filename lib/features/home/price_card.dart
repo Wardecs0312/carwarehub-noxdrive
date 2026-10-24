@@ -63,7 +63,7 @@ class PriceCard extends ConsumerWidget {
                 credits: '$totalCredits кр.',
                 money: hasSpecial
                     ? 'ваша специальная цена'
-                    : '${formatRub(totalRub)} / \$$totalUsd',
+                    : moneyText(totalRub, totalUsd),
                 keyPrefix: 'price-total',
                 big: true,
               ),
@@ -107,11 +107,12 @@ class _Price extends StatelessWidget {
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
-      Text(
-        money,
-        key: keyPrefix == null ? null : Key('$keyPrefix-money'),
-        style: const TextStyle(fontSize: 12, color: NoxColors.metalMid),
-      ),
+      if (money.isNotEmpty)
+        Text(
+          money,
+          key: keyPrefix == null ? null : Key('$keyPrefix-money'),
+          style: const TextStyle(fontSize: 12, color: NoxColors.metalMid),
+        ),
     ],
   );
 }
@@ -160,7 +161,7 @@ class _GroupRow extends StatelessWidget {
                 credits: '${special ?? group.priceCredits} кр.',
                 money: special != null
                     ? 'обычно ${group.priceCredits} кр.'
-                    : '${formatRub(group.priceRub)} / \$${group.priceUsd}',
+                    : moneyText(group.priceRub, group.priceUsd),
               )
             else
               const Text(

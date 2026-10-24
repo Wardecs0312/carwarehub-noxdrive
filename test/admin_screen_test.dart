@@ -139,6 +139,35 @@ void main() {
     final repo = await _pump(tester);
     await credits(tester, 'abc', 'тест', 'credits-plus');
     expect(repo.adjusts, isEmpty);
+    // Окно не закрылось молча: причина видна в нём.
+    expect(find.byKey(const Key('credits-error')), findsOneWidget);
+  });
+
+  testWidgets(
+    'кредиты: «-4» и «Списать» списывают 4 (раньше окно молча закрывалось)',
+    (tester) async {
+      final repo = await _pump(tester);
+      await credits(tester, '-4', 'ошибочное начисление', 'credits-minus');
+      expect(repo.adjusts, [('m1', -4, 'ошибочное начисление')]);
+    },
+  );
+
+  testWidgets('кредиты: без причины окно не закрывается и подсказывает', (
+    tester,
+  ) async {
+    final repo = await _pump(tester);
+    await credits(tester, '4', '', 'credits-minus');
+    expect(repo.adjusts, isEmpty);
+    expect(find.text('Укажите причину (от 3 символов)'), findsOneWidget);
+  });
+
+  testWidgets('кредиты: списать больше баланса нельзя, подсказка в окне', (
+    tester,
+  ) async {
+    final repo = await _pump(tester);
+    await credits(tester, '500', 'ошибка', 'credits-minus');
+    expect(repo.adjusts, isEmpty);
+    expect(find.textContaining('Нельзя списать больше'), findsOneWidget);
   });
 
   testWidgets('запрос трансляции: все источники по умолчанию', (tester) async {
