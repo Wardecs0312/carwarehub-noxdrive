@@ -12,7 +12,12 @@ import 'fakes.dart';
 
 const _vin = 'LS5A3ABC4NA000123';
 
-Future<void> _pump(WidgetTester tester, AdbStatus status, {String? vin}) async {
+Future<void> _pump(
+  WidgetTester tester,
+  AdbStatus status, {
+  String? vin,
+  FakeExecutor? executor,
+}) async {
   tester.view.physicalSize = const Size(1400, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -21,7 +26,7 @@ Future<void> _pump(WidgetTester tester, AdbStatus status, {String? vin}) async {
       overrides: [
         adbStatusProvider.overrideWith((_) => Stream.value(status)),
         // Настоящий adb в тестах не запускается: ГУ «не хранит» VIN, поле заполняет тест.
-        adbExecutorProvider.overrideWithValue(FakeExecutor()),
+        adbExecutorProvider.overrideWithValue(executor ?? FakeExecutor()),
       ],
       child: const NoxDriveApp(),
     ),
@@ -136,6 +141,38 @@ void main() {
     expect(find.text('Подтвердите загрузку на автомобиль'), findsOneWidget);
     expect(find.text('Установка кастомного голоса'), findsOneWidget);
   });
+
+  testWidgets(
+    'кастомный голос недоступен на Android 9 (MMVoice требует Android 11)',
+    (tester) async {
+      final exec = FakeExecutor()
+        ..shellReplies['getprop ro.build.version.sdk'] = '28';
+      await _pump(
+        tester,
+        const AdbStatus(AdbConnection.connected, serial: 'A'),
+        vin: _vin,
+        executor: exec,
+      );
+      await tester.tap(find.text('Установка голосового управления'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Нужен Android 11 или новее, на машине Android 9'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('variant-voicecustom')));
+      await tester.pump();
+      final next = find.descendant(
+        of: find.byKey(const Key('variant-next')),
+        matching: find.byType(FilledButton),
+      );
+      expect(tester.widget<FilledButton>(next).onPressed, isNull);
+      // Штатный голос выбрать можно.
+      await tester.tap(find.byKey(const Key('variant-voice')));
+      await tester.pump();
+      expect(tester.widget<FilledButton>(next).onPressed, isNotNull);
+    },
+  );
 
   testWidgets('VIN с буквой O считается неверным', (tester) async {
     await _pump(

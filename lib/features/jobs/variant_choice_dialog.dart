@@ -13,19 +13,28 @@ Future<ServiceItem?> showVariantChoiceDialog(
   BuildContext context, {
   required ServiceItem service,
   required List<ServiceItem> variants,
+  int? deviceSdk,
 }) => showDialog<ServiceItem>(
   context: context,
   barrierColor: Colors.black.withValues(alpha: 0.6),
   builder: (_) => _VariantChoiceDialog(
     options: [service, ...variants],
     title: service.title,
+    deviceSdk: deviceSdk,
   ),
 );
 
 class _VariantChoiceDialog extends StatefulWidget {
-  const _VariantChoiceDialog({required this.options, required this.title});
+  const _VariantChoiceDialog({
+    required this.options,
+    required this.title,
+    this.deviceSdk,
+  });
   final List<ServiceItem> options;
   final String title;
+
+  /// Версия Android головного устройства (SDK); варианты, которым её мало, недоступны.
+  final int? deviceSdk;
 
   @override
   State<_VariantChoiceDialog> createState() => _VariantChoiceDialogState();
@@ -71,6 +80,7 @@ class _VariantChoiceDialogState extends State<_VariantChoiceDialog> {
                 _Option(
                   service: o,
                   selected: _chosen?.id == o.id,
+                  problem: sdkProblem(o.code, widget.deviceSdk),
                   onTap: () => setState(() => _chosen = o),
                 ),
               const SizedBox(height: 20),
@@ -104,56 +114,66 @@ class _Option extends StatelessWidget {
     required this.service,
     required this.selected,
     required this.onTap,
+    this.problem,
   });
   final ServiceItem service;
   final bool selected;
   final VoidCallback onTap;
 
+  /// Почему вариант не подходит этой машине (тогда его нельзя выбрать).
+  final String? problem;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: InkWell(
-      key: Key('variant-${service.code}'),
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected
-                ? NoxColors.metalLight
-                : NoxColors.metalMid.withValues(alpha: 0.35),
-            width: selected ? 1.6 : 1,
+    child: Opacity(
+      opacity: problem == null ? 1 : 0.5,
+      child: InkWell(
+        key: Key('variant-${service.code}'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: problem == null ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? NoxColors.metalLight
+                  : NoxColors.metalMid.withValues(alpha: 0.35),
+              width: selected ? 1.6 : 1,
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? NoxColors.metalLight : NoxColors.metalMid,
-              size: 22,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(service.choiceLabel),
-                  const SizedBox(height: 2),
-                  Text(
-                    service.priceCredits > 0
-                        ? '${service.priceCredits} кр.'
-                        : 'Входит в пакет, без доплаты',
-                    style: const TextStyle(
-                      color: NoxColors.metalMid,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: selected ? NoxColors.metalLight : NoxColors.metalMid,
+                size: 22,
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(service.choiceLabel),
+                    const SizedBox(height: 2),
+                    Text(
+                      problem ??
+                          (service.priceCredits > 0
+                              ? '${service.priceCredits} кр.'
+                              : 'Входит в пакет, без доплаты'),
+                      style: TextStyle(
+                        color: problem == null
+                            ? NoxColors.metalMid
+                            : NoxColors.warn,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),

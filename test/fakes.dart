@@ -52,6 +52,9 @@ class FakeExecutor implements AdbExecutor {
   Future<void> disconnect(String address) async =>
       calls.add('disconnect:$address');
 
+  /// Ответы ГУ на отдельные команды shell (например, версия Android).
+  final shellReplies = <String, String>{};
+
   /// Что ГУ ответит на команду адресов сети.
   String ipReply =
       '1: lo    inet 127.0.0.1/8 scope host lo\n'
@@ -88,7 +91,7 @@ class FakeExecutor implements AdbExecutor {
     calls.add('shell:$command');
     if (failShell.contains(command)) throw AdbException('нет доступа');
     if (command == wifiIpCommand) return ipReply;
-    return 'ok';
+    return shellReplies[command] ?? 'ok';
   }
 
   @override

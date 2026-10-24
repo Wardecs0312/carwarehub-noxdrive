@@ -56,6 +56,27 @@ class ServiceItem {
 /// Хранится в программе: в боевой базе нет SQL-доступа для новых колонок.
 const serviceVariantOf = {'voicecustom': 'voice'};
 
+/// Минимальная версия Android (SDK) головного устройства для услуги. MMVoice требует
+/// Android 11: на старом ГУ UNI-Z F202_MCA (Android 9) установка падала с INSTALL_FAILED_OLDER_SDK,
+/// а кредиты списывались. Хранится в программе: в боевой базе нет SQL-доступа для новых колонок.
+const serviceMinSdk = {'voicecustom': 30};
+
+/// Номер Android по SDK (28 -> 9, 30 -> 11).
+String androidVersionName(int sdk) => switch (sdk) {
+  >= 29 => '${sdk - 19}',
+  28 => '9',
+  27 || 26 => '8',
+  25 || 24 => '7',
+  _ => 'SDK $sdk',
+};
+
+/// Почему услугу нельзя поставить на это ГУ, или null. [sdk] null — версию прочитать не удалось.
+String? sdkProblem(String code, int? sdk) {
+  final min = serviceMinSdk[code];
+  if (min == null || sdk == null || sdk >= min) return null;
+  return 'Нужен Android ${androidVersionName(min)} или новее, на машине Android ${androidVersionName(sdk)}';
+}
+
 /// Названия в окне выбора варианта.
 const serviceChoiceTitles = {
   'voice': 'Штатный голос',

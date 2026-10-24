@@ -348,6 +348,20 @@ class _BlockedReason extends ConsumerWidget {
   }
 }
 
+/// Версия Android головного устройства (SDK) или null, если прочитать не удалось.
+Future<int?> _deviceSdk(WidgetRef ref, String? serial) async {
+  if (serial == null) return null;
+  try {
+    final out = await ref
+        .read(adbExecutorProvider)
+        .shell(serial, 'getprop ro.build.version.sdk')
+        .timeout(const Duration(seconds: 10));
+    return int.tryParse(out.trim());
+  } catch (_) {
+    return null;
+  }
+}
+
 class _ServiceCard extends ConsumerWidget {
   const _ServiceCard({
     required this.index,
@@ -382,13 +396,19 @@ class _ServiceCard extends ConsumerWidget {
           onTap: enabled
               ? () async {
                   final v = normalizeVin(vin);
-                  // Есть варианты: сначала мастер выбирает один из них.
+                  // Есть варианты: сначала мастер выбирает один из них. Версия Android машины
+                  // нужна, чтобы не предлагать то, что на ней не встанет.
+                  final sdk = variants.isEmpty
+                      ? null
+                      : await _deviceSdk(ref, adb.serial);
+                  if (!context.mounted) return;
                   final service = variants.isEmpty
                       ? this.service
                       : await showVariantChoiceDialog(
                           context,
                           service: this.service,
                           variants: variants,
+                          deviceSdk: sdk,
                         );
                   if (service == null || !context.mounted) return;
                   // Любая услуга начинается только после «Подтвердить загрузку».
