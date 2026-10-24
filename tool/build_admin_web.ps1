@@ -52,5 +52,8 @@ try {
   # Привязка к проекту Vercel (папка build пересоздаётся при каждой сборке).
   Push-Location $out
   try { npx -y vercel@latest link --yes --project noxdrive-admin | Out-Null } finally { Pop-Location }
+  # vercel link кладёт .env.local со служебным токеном Vercel: на сайт он попасть не должен.
+  Remove-Item (Join-Path $out '.env.local') -ErrorAction SilentlyContinue
+  [IO.File]::WriteAllText((Join-Path $out '.vercelignore'), ".env*`n.last_build_id`n", $utf8)
   Write-Host "Готово: $out. Публикация: cd build/admin_web; npx vercel deploy --prod --yes"
 } finally { Pop-Location }
