@@ -254,6 +254,9 @@ if %ERRORLEVEL% GEQ 8 (
 set RC=%ERRORLEVEL%
 echo %date% %time% bat: robocopy rc=%RC% >> "%LOG%"
 set "NOX_UPDATE_SELFTEST="
+rem С правами администратора программу не перезапускаем: это сделает обычный скрипт,
+rem который ждёт окончания копирования (иначе программа работала бы от администратора).
+if /i "%~5"=="nostart" exit /b 0
 start "" /D "%DST%" "%DST%\%EXE%"
 exit /b 0
 
@@ -268,18 +271,70 @@ if exist "%DST%\%REL%" (
 exit /b 0
 ''';
 
+  /// Запуск update.bat с правами администратора (одно окно Windows «Разрешить?») и перезапуск
+  /// программы уже без них. Параметры идут через переменные окружения: пути с пробелами
+  /// («C:\Program Files») и кириллицей не ломаются в PowerShell.
+  static const elevateBat = r'''@echo off
+setlocal
+set "LOG=%TEMP%\nox_update.log"
+echo %date% %time% admin: ask >> "%LOG%"
+powershell -NoProfile -WindowStyle Hidden -Command "try { Start-Process -FilePath $env:NOX_BAT -ArgumentList $env:NOX_ARGS -Verb RunAs -Wait -WindowStyle Hidden } catch { exit 1 }"
+echo %date% %time% admin: done rc=%ERRORLEVEL% >> "%LOG%"
+start "" /D "%NOX_DST%" "%NOX_DST%\%NOX_EXE%"
+exit /b 0
+''';
+
+  /// Можно ли писать в папку программы. В «C:\Program Files» без прав администратора нельзя:
+  /// тогда копирование падало с «Отказано в доступе», программа перезапускалась старой
+  /// и снова просила обновиться.
+  static Future<bool> canWrite(Directory dir) async {
+    final probe = File(
+      '${dir.path}${Platform.pathSeparator}.nox_write_test_$pid',
+    );
+    try {
+      await probe.writeAsString('ok');
+      await probe.delete();
+      return true;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Строка параметров update.bat для запуска с правами администратора: каждый путь в кавычках,
+  /// последний параметр `nostart` (программу перезапустит обычный скрипт).
+  static String elevatedArgs(String src, String dst, String exe, int appPid) =>
+      '"$src" "$dst" "$exe" "$appPid" nostart';
+
   /// Обновление через update.bat: программа закрывается, скрипт меняет файлы и перезапускает её.
-  /// Если запустить скрипт не удалось, файлы меняются прямо из программы ([applyInPlace]).
+  /// Папка программы закрыта для записи (Program Files) — скрипт запускается с правами
+  /// администратора. Если запустить скрипт не удалось, файлы меняются прямо из программы
+  /// ([applyInPlace]).
   static Future<Never> applyAndRestart(Directory newDir) async {
     final dst = installDir;
     final exeName = Platform.resolvedExecutable
         .split(Platform.pathSeparator)
         .last;
-    final bat = File(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}nox_update.bat',
-    );
+    final tmp = Directory.systemTemp.path;
+    final bat = File('$tmp${Platform.pathSeparator}nox_update.bat');
     try {
       await bat.writeAsString(updateBat.replaceAll('\n', '\r\n'));
+      if (!await canWrite(dst)) {
+        final admin = File('$tmp${Platform.pathSeparator}nox_update_admin.bat');
+        await admin.writeAsString(elevateBat.replaceAll('\n', '\r\n'));
+        log('bat: ${dst.path} is read-only, launch as administrator');
+        await Process.start(
+          admin.path,
+          const [],
+          mode: ProcessStartMode.detached,
+          environment: {
+            'NOX_BAT': bat.path,
+            'NOX_ARGS': elevatedArgs(newDir.path, dst.path, exeName, pid),
+            'NOX_DST': dst.path,
+            'NOX_EXE': exeName,
+          },
+        );
+        exit(0);
+      }
       log('bat: launch ${bat.path} src=${newDir.path} dst=${dst.path}');
       await Process.start(bat.path, [
         newDir.path,

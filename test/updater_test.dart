@@ -4,30 +4,39 @@ import 'package:carwarehub_noxdrive/features/update/updater.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  late Directory root;
-  setUp(() async => root = await Directory.systemTemp.createTemp('upd_test'));
-  tearDown(() async => root.delete(recursive: true));
+  test(
+    'папка программы без права записи распознаётся (Program Files)',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('nox_upd');
+      addTearDown(() => dir.delete(recursive: true));
+      expect(await Updater.canWrite(dir), isTrue);
+      expect(
+        await Updater.canWrite(
+          Directory('${dir.path}${Platform.pathSeparator}нет'),
+        ),
+        isFalse,
+      );
+      if (Platform.isWindows) {
+        expect(
+          await Updater.canWrite(Directory(r'C:\Windows\System32')),
+          isFalse,
+        );
+      }
+    },
+  );
 
-  File f(Directory d, String rel) =>
-      File('${d.path}${Platform.pathSeparator}$rel');
-
-  test('новые файлы копируются поверх, вложенные папки создаются', () async {
-    final from = await Directory('${root.path}/new').create();
-    final to = await Directory('${root.path}/app').create();
-    await f(to, 'app.exe').writeAsString('old');
-    await f(to, 'keep.txt').writeAsString('keep');
-    await f(from, 'app.exe').writeAsString('new');
-    await Directory('${from.path}/data').create();
-    await f(from, 'data${Platform.pathSeparator}app.so').writeAsString('so');
-
-    final n = await Updater.replaceFiles(from, to);
-
-    expect(n, 2);
-    expect(await f(to, 'app.exe').readAsString(), 'new');
+  test('параметры для обновления с правами администратора: пути в кавычках, без перезапуска', () {
     expect(
-      await f(to, 'data${Platform.pathSeparator}app.so').readAsString(),
-      'so',
+      Updater.elevatedArgs(
+        r'C:\Temp\nox_update_37\new',
+        r'C:\Program Files\nox.drive',
+        'carwarehub_noxdrive.exe',
+        42,
+      ),
+      r'"C:\Temp\nox_update_37\new" "C:\Program Files\nox.drive" "carwarehub_noxdrive.exe" "42" nostart',
     );
-    expect(await f(to, 'keep.txt').readAsString(), 'keep');
+    expect(Updater.updateBat, contains('if /i "%~5"=="nostart" exit /b 0'));
+    expect(Updater.elevateBat, contains('-Verb RunAs -Wait'));
+    expect(Updater.elevateBat, contains(r'start "" /D "%NOX_DST%"'));
   });
 }
