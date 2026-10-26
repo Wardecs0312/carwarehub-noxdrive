@@ -13,6 +13,7 @@ import '../../app/theme.dart';
 import '../../core/vin.dart';
 import '../../data/catalog_repository.dart';
 import '../../data/models.dart';
+import '../../jobs/done_services.dart';
 import '../../jobs/job_controller.dart';
 import '../../jobs/job_models.dart';
 import '../diagnostics/diagnostics_ui.dart';
@@ -387,6 +388,11 @@ class _ServiceCard extends ConsumerWidget {
     // Подсказка, почему кнопка заблокирована. ADB важнее всего остального.
     final hint = serviceBlockedHint(adb, vin);
     final enabled = hint == null && !busy;
+    // Уже сделано на этой машине (в том числе другим вариантом кнопки): зелёный слой с галочкой.
+    final done = ref.watch(doneServicesProvider(normalizeVin(vin)));
+    final isDone =
+        done.contains(service.code) ||
+        variants.any((v) => done.contains(v.code));
 
     final card = Opacity(
       opacity: enabled ? 1 : 0.45,
@@ -468,6 +474,34 @@ class _ServiceCard extends ConsumerWidget {
         ),
       ),
     );
-    return hint == null ? card : Tooltip(message: hint, child: card);
+    final shown = !isDone
+        ? card
+        : Stack(
+            children: [
+              card,
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    key: const Key('service-done'),
+                    decoration: BoxDecoration(
+                      color: NoxColors.ok.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: NoxColors.ok.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    alignment: Alignment.topRight,
+                    padding: const EdgeInsets.all(10),
+                    child: const Icon(
+                      Icons.check_circle,
+                      color: NoxColors.ok,
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+    return hint == null ? shown : Tooltip(message: hint, child: shown);
   }
 }

@@ -153,12 +153,6 @@ const _demoServices = [
     priceCredits: 0,
   ),
   ServiceItem(
-    id: 4,
-    code: 'reboot',
-    title: 'Перезагрузка автомобиля',
-    priceCredits: 0,
-  ),
-  ServiceItem(
     id: 5,
     code: 'sysapps',
     title: 'Установка системных приложений',
@@ -175,6 +169,19 @@ const _demoServices = [
     id: 7,
     code: 'clusterlang',
     title: 'Перевод приборной панели',
+    priceCredits: 0,
+  ),
+  ServiceItem(
+    id: 17,
+    code: 'rustore',
+    title: 'Установить RuStore',
+    priceCredits: 0,
+  ),
+  // Перезагрузка — последней: её делают, когда остальное готово.
+  ServiceItem(
+    id: 4,
+    code: 'reboot',
+    title: 'Перезагрузка автомобиля',
     priceCredits: 0,
   ),
 ];

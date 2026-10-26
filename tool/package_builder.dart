@@ -201,12 +201,30 @@ RecipePlan planSystemApps(Archive zip, {required String prep}) {
 
 /// [6] Приложение для приборной панели: подготовка (как в [2] и [5]: доступ ADB и setprop),
 /// затем один .apk с выдачей разрешений. В батнике для этой услуги ветки нет, подготовка добавлена по решению заказчика.
-RecipePlan planCluster(List<int> apk, {required String prep}) {
+RecipePlan planCluster(List<int> apk, {required String prep}) => _planApk(
+  apk,
+  prep: prep,
+  key: 'cluster.apk',
+  title: 'Установка приложения для приборной панели',
+);
+
+/// RuStore: на всех моделях, кроме Q07, та же подготовка и один .apk, что в [6]. На Q07 —
+/// [planSingleApk] (там своя подготовка). Разрешение ставить приложения RuStore выдаёт мастер
+/// сам командой appops (кнопка «Патч для RuStore» в окне после установки).
+RecipePlan planRustore(List<int> apk, {required String prep}) =>
+    _planApk(apk, prep: prep, key: 'rustore.apk', title: 'Установка RuStore');
+
+RecipePlan _planApk(
+  List<int> apk, {
+  required String prep,
+  required String key,
+  required String title,
+}) {
   final pre = _lines([prep.trim(), 'setprop vecentek.model 1']);
   return RecipePlan(
     files: [
       PlanFile(key: 'pre.sh', bytes: _text(pre), kind: 'sh'),
-      PlanFile(key: 'cluster.apk', bytes: apk, kind: 'apk'),
+      PlanFile(key: key, bytes: apk, kind: 'apk'),
     ],
     steps: (ids) => _resolve([
       {
@@ -216,8 +234,8 @@ RecipePlan planCluster(List<int> apk, {required String prep}) {
       },
       {
         'type': 'install_apk',
-        'title': 'Установка приложения для приборной панели',
-        'payload_key': 'cluster.apk',
+        'title': title,
+        'payload_key': key,
         'grant': true,
       },
     ], ids),

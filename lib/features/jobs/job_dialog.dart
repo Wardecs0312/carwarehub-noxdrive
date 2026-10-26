@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../jobs/job_controller.dart';
+import 'rustore_patch.dart';
 
 /// Окно выполнения услуги: только плавная шкала прогресса и итог. Никаких консолей и логов.
 Future<void> showJobDialog(BuildContext context) => showDialog<void>(
@@ -99,6 +100,11 @@ class _JobDialog extends ConsumerWidget {
                         job.message!,
                         style: const TextStyle(color: NoxColors.warn),
                       ),
+                    ),
+                  if (ok && job.serviceCode == 'rustore')
+                    const Padding(
+                      padding: EdgeInsets.only(top: 18),
+                      child: RustorePatch(),
                     ),
                 ] else ...[
                   Row(

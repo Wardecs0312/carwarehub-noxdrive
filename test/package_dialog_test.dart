@@ -196,6 +196,9 @@ void main() {
         ),
         exec,
       );
+      // Перезагрузка последней в списке: сначала прокрутить к ней.
+      await tester.ensureVisible(find.text('Перезагрузка автомобиля'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Перезагрузка автомобиля'));
       await tester.pumpAndSettle();
 
@@ -231,6 +234,9 @@ void main() {
       ),
       exec,
     );
+    // Перезагрузка последней в списке: сначала прокрутить к ней.
+    await tester.ensureVisible(find.text('Перезагрузка автомобиля'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Перезагрузка автомобиля'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('confirm-back')));
@@ -255,6 +261,9 @@ void main() {
         const [],
       )..failPreview = true;
       await _open(tester, FakePicker([]), backend, exec);
+      // Перезагрузка последней в списке: сначала прокрутить к ней.
+      await tester.ensureVisible(find.text('Перезагрузка автомобиля'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Перезагрузка автомобиля'));
       await tester.pumpAndSettle();
 

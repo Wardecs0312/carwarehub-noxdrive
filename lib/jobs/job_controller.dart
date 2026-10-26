@@ -14,6 +14,7 @@ import '../app/platform.dart';
 import '../data/auth_repository.dart';
 import '../data/models.dart';
 import '../security/payload_cipher.dart';
+import 'done_services.dart';
 import 'job_backend.dart';
 import 'job_models.dart';
 
@@ -47,6 +48,7 @@ class JobState {
     this.progress = 0,
     this.stepTitle = '',
     this.serviceTitle = '',
+    this.serviceCode = '',
     this.message,
     this.jobId,
     this.refundable = false,
@@ -56,6 +58,9 @@ class JobState {
   final double progress;
   final String stepTitle;
   final String serviceTitle;
+
+  /// Код услуги (например, rustore): окно итога показывает по нему подсказки после установки.
+  final String serviceCode;
 
   /// При ошибке: причина. При успехе: примечание (например, какие свои APK не установились).
   final String? message;
@@ -74,6 +79,7 @@ class JobState {
     progress: progress ?? this.progress,
     stepTitle: stepTitle ?? this.stepTitle,
     serviceTitle: serviceTitle,
+    serviceCode: serviceCode,
     message: message ?? this.message,
     jobId: jobId ?? this.jobId,
     refundable: refundable ?? this.refundable,
@@ -173,6 +179,7 @@ class JobController extends Notifier<JobState> {
     state = JobState(
       phase: JobPhase.running,
       serviceTitle: service.title,
+      serviceCode: service.code,
       stepTitle: 'Подготовка',
     );
     if (adb == null || !adb.isReady || adb.serial == null) {
@@ -358,6 +365,9 @@ class JobController extends Notifier<JobState> {
         stepTitle: 'Готово',
         message: notes.isEmpty ? null : notes.join('. '),
       );
+      ref
+          .read(localDoneProvider.notifier)
+          .update((s) => {...s, (vin, service.code)});
       ref.invalidate(balanceProvider);
     } catch (err) {
       final e = _cancelRequested ? JobException('Остановлено мастером') : err;

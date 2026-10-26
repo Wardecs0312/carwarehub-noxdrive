@@ -8,8 +8,9 @@
 //   dart run tool/publish_package.dart --recipe russify --source storage:firmwares/nox.zip \
 //       --prep tool/local/prep.sh --models all [--firmware '%'] [--dry-run]
 //
-//   --recipe  russify | voice | voicecustom | sysapps | cluster | clusterlang | q07prep | q07ru | q07engine | q07sgu | q07voice
-//             (voicecustom: архив MMVOICE_2026.zip; q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
+//   --recipe  russify | voice | voicecustom | sysapps | cluster | clusterlang | rustore | q07prep | q07ru | q07engine | q07sgu | q07voice
+//             (rustore: сам .apk; без --prep — вариант для Q07 с её подготовкой, запускать с --models q07;
+//             voicecustom: архив MMVOICE_2026.zip; q07prep и q07ru: архив «q07 ru.zip»; q07engine и q07sgu: сам .apk; --prep для q07 не нужен)
 //   --source  путь к локальному файлу или storage:<bucket>/<путь> (архив nox.zip; для cluster сам .apk,
 //             для clusterlang сам c281-polymeric-language-helper.jar)
 //   --prep    файл с командой доступа ADB (строка с disable-verify), только у администратора, папка tool/local/ не в git
@@ -128,6 +129,7 @@ Future<void> main(List<String> argv) async {
     'sysapps',
     'cluster',
     'clusterlang',
+    'rustore',
     'q07prep',
     'q07ru',
     'q07engine',
@@ -137,7 +139,10 @@ Future<void> main(List<String> argv) async {
   if (!known.contains(recipe)) {
     _fail('Неизвестный рецепт $recipe. Доступны: ${known.join(', ')}');
   }
-  if (recipe != 'cluster' && !recipe.startsWith('q07') && a['prep'] == null) {
+  if (recipe != 'cluster' &&
+      recipe != 'rustore' &&
+      !recipe.startsWith('q07') &&
+      a['prep'] == null) {
     _fail('Для $recipe нужен --prep (файл с командой доступа ADB)');
   }
 
@@ -171,6 +176,11 @@ Future<void> main(List<String> argv) async {
     plan = switch (recipe) {
       'cluster' => planCluster(data, prep: prep),
       'clusterlang' => planClusterLanguage(data, prep: prep),
+      'rustore' when prep.isEmpty => planSingleApk(
+        data,
+        title: 'Установка RuStore',
+      ),
+      'rustore' => planRustore(data, prep: prep),
       'q07prep' => planQ07Prepare(ZipDecoder().decodeBytes(data)),
       'q07ru' => planQ07Russify(ZipDecoder().decodeBytes(data)),
       'q07engine' => planSingleApk(data, title: 'Установка звука мотора'),

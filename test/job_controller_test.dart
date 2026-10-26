@@ -5,6 +5,7 @@ import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:carwarehub_noxdrive/adb/wifi_adb.dart';
 import 'package:carwarehub_noxdrive/data/models.dart';
+import 'package:carwarehub_noxdrive/jobs/done_services.dart';
 import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/jobs/job_models.dart';
 import 'package:carwarehub_noxdrive/security/payload_cipher.dart';
@@ -139,6 +140,21 @@ void main() {
     expect(exec.received.single, apk);
     expect(exec.calls.where((x) => x.startsWith('install')), hasLength(2));
   });
+
+  test(
+    'успешная услуга отмечается выполненной на этом VIN (зелёная галочка)',
+    () async {
+      final (c, _, _, _) = await _setup(withReboot: false);
+      expect(c.read(doneServicesProvider(_vin)), isEmpty);
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
+      final s = c.read(jobControllerProvider);
+      expect(s.serviceCode, 'russify');
+      expect(c.read(doneServicesProvider(_vin)), {'russify'});
+      expect(c.read(doneServicesProvider('LS5A3ABC4NA000999')), isEmpty);
+    },
+  );
 
   test('«Остановить»: услуга закрывается как остановленная мастером', () async {
     final (c, exec, backend, _) = await _setup(withReboot: false);
@@ -581,28 +597,25 @@ void main() {
       },
     );
 
-    test(
-      'adb_host: не удалось подключиться по Wi-Fi — задание всё равно успешно, причина в журнале',
-      () async {
-        wifiRetryDelay = Duration.zero;
-        addTearDown(() => wifiRetryDelay = const Duration(seconds: 2));
-        final (c, exec, backend) = await setupSteps(const [
-          JobStep(
-            type: StepType.adbHost,
-            title: 'ADB по Wi-Fi',
-            args: ['tcpip', '5555'],
-          ),
-        ]);
-        exec.connectReply = null;
-        await c
-            .read(jobControllerProvider.notifier)
-            .run(service: _service, vin: _vin, model: _model);
+    test('adb_host: не удалось подключиться по Wi-Fi — задание всё равно успешно, причина в журнале', () async {
+      wifiRetryDelay = Duration.zero;
+      addTearDown(() => wifiRetryDelay = const Duration(seconds: 2));
+      final (c, exec, backend) = await setupSteps(const [
+        JobStep(
+          type: StepType.adbHost,
+          title: 'ADB по Wi-Fi',
+          args: ['tcpip', '5555'],
+        ),
+      ]);
+      exec.connectReply = null;
+      await c
+          .read(jobControllerProvider.notifier)
+          .run(service: _service, vin: _vin, model: _model);
 
-        expect(c.read(jobControllerProvider).phase, JobPhase.success);
-        expect(exec.calls.where((x) => x.startsWith('connect:')).length, 5);
-        expect(backend.logs.single, contains('той же сети Wi-Fi'));
-      },
-    );
+      expect(c.read(jobControllerProvider).phase, JobPhase.success);
+      expect(exec.calls.where((x) => x.startsWith('connect:')).length, 5);
+      expect(backend.logs.single, contains('той же сети Wi-Fi'));
+    });
 
     test('машина не в Wi-Fi: подключение не пробуется', () async {
       final (c, exec, backend) = await setupSteps(const [

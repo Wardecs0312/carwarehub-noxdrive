@@ -310,6 +310,15 @@ void main() {
     );
   });
 
+  test('RuStore: подготовка, затем один apk с выдачей разрешений', () {
+    final plan = planRustore([1, 2, 3], prep: _prep);
+    final steps = plan.steps(_ids(plan));
+    expect(steps.map((s) => s['type']), ['run_script', 'install_apk']);
+    expect(steps.last['title'], 'Установка RuStore');
+    expect(steps.last['grant'], true);
+    expect(steps.last['payload_id'], 'id:rustore.apk');
+  });
+
   test('[7] перевод приборки: помощник в /data/local/tmp, set ru, ошибка помощника роняет шаг', () {
     final plan = planClusterLanguage([7, 7], prep: _prep);
     final steps = plan.steps(_ids(plan));
