@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/env.dart';
+import 'app/server_route.dart';
 import 'app/theme.dart';
 import 'data/auth_repository.dart';
 import 'data/catalog_repository.dart';
@@ -23,8 +24,10 @@ import 'jobs/job_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Env.hasSupabase) {
+    // Мастера из России ходят через посредника (lib/app/server_route.dart).
+    await resolveServerUrl();
     await Supabase.initialize(
-      url: Env.supabaseUrl,
+      url: ServerRoute.url,
       publishableKey: Env.supabaseAnonKey,
     );
   }
