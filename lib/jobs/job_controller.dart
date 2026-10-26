@@ -59,7 +59,7 @@ class JobState {
   final String stepTitle;
   final String serviceTitle;
 
-  /// Код услуги (например, rustore): окно итога показывает по нему подсказки после установки.
+  /// Код услуги (например, rustore).
   final String serviceCode;
 
   /// При ошибке: причина. При успехе: примечание (например, какие свои APK не установились).

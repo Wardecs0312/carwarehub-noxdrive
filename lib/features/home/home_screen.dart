@@ -477,6 +477,7 @@ class _ServiceCard extends ConsumerWidget {
     final shown = !isDone
         ? card
         : Stack(
+            fit: StackFit.expand,
             children: [
               card,
               Positioned.fill(

@@ -1,13 +1,11 @@
 import 'package:carwarehub_noxdrive/adb/adb_status.dart';
 import 'package:carwarehub_noxdrive/adb/adb_status_checker.dart';
 import 'package:carwarehub_noxdrive/app/theme.dart';
-import 'package:carwarehub_noxdrive/features/jobs/rustore_patch.dart';
 import 'package:carwarehub_noxdrive/jobs/done_services.dart';
 import 'package:carwarehub_noxdrive/jobs/job_controller.dart';
 import 'package:carwarehub_noxdrive/main.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,7 +103,7 @@ void main() {
     );
 
     expect(find.text('Русификация и установка приложений'), findsOneWidget);
-    expect(_cards(tester).length, 8);
+    expect(_cards(tester).length, 9);
     expect(find.byKey(const Key('blocked-reason')), findsNothing);
     expect(_cards(tester).every((w) => w.onTap != null), isTrue);
   });
@@ -142,42 +140,6 @@ void main() {
       expect(_cards(tester).every((w) => w.onTap != null), isTrue);
     },
   );
-
-  testWidgets('патч для RuStore: раскрывается, команда копируется с галочкой', (
-    tester,
-  ) async {
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copied = (call.arguments as Map)['text'] as String;
-        }
-        return null;
-      },
-    );
-    await tester.pumpWidget(
-      const MaterialApp(home: Scaffold(body: RustorePatch())),
-    );
-    expect(find.byKey(const Key('rustore-command')), findsNothing);
-    await tester.tap(find.byKey(const Key('rustore-patch')));
-    await tester.pumpAndSettle();
-    expect(find.text(rustorePatchCommand), findsOneWidget);
-    expect(find.byKey(const Key('rustore-copied')), findsNothing);
-
-    await tester.tap(find.byKey(const Key('rustore-copy')));
-    await tester.pump();
-    expect(
-      copied,
-      'adb shell appops set ru.vk.store REQUEST_INSTALL_PACKAGES allow',
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.byKey(const Key('rustore-copied')), findsOneWidget);
-    // Через пару секунд значок возвращается к «Копировать».
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('rustore-copied')), findsNothing);
-  });
 
   testWidgets('голос: сначала выбор штатный/кастомный, потом подтверждение', (
     tester,

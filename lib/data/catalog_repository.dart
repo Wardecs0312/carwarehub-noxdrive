@@ -177,6 +177,12 @@ const _demoServices = [
     title: 'Установить RuStore',
     priceCredits: 0,
   ),
+  ServiceItem(
+    id: 18,
+    code: 'rustorepatch',
+    title: 'Патч для RuStore',
+    priceCredits: 0,
+  ),
   // Перезагрузка — последней: её делают, когда остальное готово.
   ServiceItem(
     id: 4,
